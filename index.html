@@ -4771,8 +4771,7 @@ function App() {
     try { await window.storage?.set('inv-invoice-template', dataUrl || ''); } catch(e) {}
   };
   const [ieHistory, setIEHistory]           = useState([]);
-  const [ieDefault, _setIeDefault]          = useState(() => { try { const v = localStorage.getItem('inv-ie-default'); return v === 'export' || v === 'import' ? v : 'import'; } catch(e) { return 'import'; } }); // 'import' | 'export'
-  const setIeDefault = v => { _setIeDefault(v); try { localStorage.setItem('inv-ie-default', v); } catch(e) {} };
+  const [ieDefault, setIeDefault]           = useState('import'); // 'import' | 'export'
   const [showApiKey, setShowApiKey]         = useState(false);
   const [toast, setToast]                   = useState(null);
   const [excludedWords, setExcludedWords]   = useState([]);
