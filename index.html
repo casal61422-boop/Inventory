@@ -142,6 +142,7 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .field-input:focus { border-color: var(--amber); }
 .combine-price-pill { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface); transition: border-color 0.15s; }
 .combine-price-pill:focus-within { border-color: var(--amber); }
+.combine-price-pill-animated { border: none; overflow: visible; background: transparent; }
 .field-label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 5px; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 9999; padding: 16px; }
 .modal-box { background: var(--surface); border-radius: 16px; width: 100%; box-shadow: 0 24px 64px rgba(0,0,0,0.35); }
@@ -185,6 +186,14 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 }
 .field-input-animated:hover {
   transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(186,117,23,0.18);
+  border-color: var(--amber) !important;
+}
+.img-box-animated {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
+}
+.img-box-animated:hover {
+  transform: scale(1.04);
   box-shadow: 0 4px 14px rgba(186,117,23,0.18);
   border-color: var(--amber) !important;
 }
@@ -1235,16 +1244,44 @@ function Barcode({ value, height=55, width=1.4, fontSize=10 }) {
 
 /* ── Combine Price split (¥ left / $ right), glued currency symbol shown once a value is entered ── */
 function CombinePriceSplit({ valueCny, valueUsd, onChangeCny, onChangeUsd, fontSize=12, padding='5px 4px' }) {
+  const [hoverSide, setHoverSide] = useState(null);
+  const [focusSide, setFocusSide] = useState(null);
   const hasCny = !!(valueCny && valueCny !== '');
   const hasUsd = !!(valueUsd && valueUsd !== '');
-  return h('div', { className:'combine-price-pill' },
-    h('div', { style:{position:'relative',flex:1,minWidth:0} },
+  const cnyActive = hoverSide === 'cny' || focusSide === 'cny';
+  const usdActive = hoverSide === 'usd' || focusSide === 'usd';
+  const activeShadow = '0 4px 14px rgba(186,117,23,0.18)';
+  return h('div', { className:'combine-price-pill combine-price-pill-animated' },
+    h('div', {
+      style:{
+        position:'relative', flex:1, minWidth:0,
+        border:'1px solid ' + (cnyActive ? 'var(--amber)' : 'var(--border)'), borderRight:'none',
+        borderRadius:'8px 0 0 8px', background:'var(--surface)',
+        transform: cnyActive ? 'translateY(-2px)' : undefined,
+        boxShadow: cnyActive ? activeShadow : undefined,
+        zIndex: cnyActive ? 2 : 1,
+        transition:'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease'
+      },
+      onMouseEnter:()=>setHoverSide('cny'), onMouseLeave:()=>setHoverSide(s=>s==='cny'?null:s)
+    },
       hasCny && h('span', { style:{position:'absolute',left:4,top:'50%',transform:'translateY(-50%)',fontSize,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '¥'),
-      h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'¥', style:{padding,fontSize,paddingLeft:hasCny?12:undefined,border:'none',borderRadius:0,background:'transparent'}, value:valueCny||'', onChange:e=>onChangeCny(e.target.value) })
+      h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'¥', style:{padding,fontSize,paddingLeft:hasCny?12:undefined,border:'none',borderRadius:'7px 0 0 7px',background:'transparent'}, value:valueCny||'', onFocus:()=>setFocusSide('cny'), onBlur:()=>setFocusSide(s=>s==='cny'?null:s), onChange:e=>onChangeCny(e.target.value) })
     ),
-    h('div', { style:{position:'relative',flex:1,minWidth:0,borderLeft:'1px solid var(--border)'} },
+    h('div', { style:{width:0,alignSelf:'stretch',background:'transparent'} }),
+    h('div', {
+      style:{
+        position:'relative', flex:1, minWidth:0,
+        border:'1px solid ' + (usdActive ? 'var(--amber)' : 'var(--border)'), borderLeft:'none',
+        borderRadius:'0 8px 8px 0', background:'var(--surface)',
+        transform: usdActive ? 'translateY(-2px)' : undefined,
+        boxShadow: usdActive ? activeShadow : undefined,
+        zIndex: usdActive ? 2 : 1,
+        transition:'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease'
+      },
+      onMouseEnter:()=>setHoverSide('usd'), onMouseLeave:()=>setHoverSide(s=>s==='usd'?null:s)
+    },
       hasUsd && h('span', { style:{position:'absolute',left:4,top:'50%',transform:'translateY(-50%)',fontSize,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '$'),
-      h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'$', style:{padding,fontSize,paddingLeft:hasUsd?12:undefined,border:'none',borderRadius:0,background:'transparent'}, value:valueUsd||'', onChange:e=>onChangeUsd(e.target.value) })
+      h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'$', style:{padding,fontSize,paddingLeft:hasUsd?12:undefined,border:'none',borderRadius:'0 7px 7px 0',background:'transparent'}, value:valueUsd||'', onFocus:()=>setFocusSide('usd'), onBlur:()=>setFocusSide(s=>s==='usd'?null:s), onChange:e=>onChangeUsd(e.target.value) })
     )
   );
 }
@@ -4312,6 +4349,7 @@ function SupplierSwipeRow({ s, i, suppliers, setSuppliers, applications, setCatM
 }
 
 const _queueHoldMap = new Map(); // persists RAF handles across re-renders for hold-to-delete
+const _queueBarRefMap = new Map(); // DOM refs for hold-progress fill bars — updated directly per-frame to avoid re-render jank
 
 /* ── Supplier Image Crop Modal Component ── */
 function SupplierCropModal({ src, darkMode, onConfirm, onCancel, savedCrop, title='Crop Image' }) {
@@ -4559,6 +4597,9 @@ function App() {
   const setStockTab = v => { setStockTabRaw(v); localStorage.setItem('stockTab', v); };
   const [orderQtys, setOrderQtys]   = useState({});
   const [expandedQtyId, setExpandedQtyId] = useState(null);
+  const [expandedStockId, setExpandedStockId] = useState(null);
+  const [stockEditDraft, setStockEditDraft] = useState(null);
+  const [qrCropStockTarget, setQrCropStockTarget] = useState(false);
   const [ocSwipe, setOcSwipe] = useState({ id:null, offset:0, ready:false });
   const ocHoldRef = useRef(null);
   const ocStartX  = useRef(0);
@@ -4660,6 +4701,8 @@ function App() {
   const [highlightSupplierName, setHighlightSupplierName] = useState(null);
   const [justAddedSupplier, setJustAddedSupplier] = useState(null);
   const [qrPriceLocked, setQrPriceLocked]         = useState(() => { try { return localStorage.getItem('inv-lock-qr-price') === 'true'; } catch(e) { return false; } });
+  const [addPageCombineHoverSide, setAddPageCombineHoverSide] = useState(null);
+  const [addPageCombineFocusSide, setAddPageCombineFocusSide] = useState(null);
   const [lockedQrLinkValue, setLockedQrLinkValue] = useState(() => { try { return localStorage.getItem('inv-lock-qr-link-value') || ''; } catch(e) { return ''; } });
   const [lockedProductPriceValue, setLockedProductPriceValue] = useState(() => { try { return localStorage.getItem('inv-lock-product-price-value') || ''; } catch(e) { return ''; } });
   const [lockedCombinePriceValue, setLockedCombinePriceValue] = useState(() => { try { return localStorage.getItem('inv-lock-combine-price-value') || ''; } catch(e) { return ''; } });
@@ -5733,12 +5776,15 @@ function App() {
     if (qrCropQueueTarget !== null) {
       setQueue(prev => prev.map((item, j) => j === qrCropQueueTarget ? {...item, qr_link_url: dataUrl} : item));
       setQrCropQueueTarget(null);
+    } else if (qrCropStockTarget) {
+      setStockEditDraft(d => d ? {...d, qr_link_url: dataUrl} : d);
+      setQrCropStockTarget(false);
     } else {
       setPending(p => p ? {...p, qr_link_url: dataUrl} : p);
     }
     setQrCropSrc(null);
   };
-  const cancelQrCrop = () => { setQrCropSrc(null); setQrCropQueueTarget(null); };
+  const cancelQrCrop = () => { setQrCropSrc(null); setQrCropQueueTarget(null); setQrCropStockTarget(false); };
 
   // QR Crop modal: mouse/touch handlers (mirrors SupplierCropModal)
   const qrCropClamp = (v,mn,mx) => Math.max(mn,Math.min(mx,v));
@@ -5870,69 +5916,254 @@ function App() {
       { key:'instore',       icon:'\ud83c\udfe5', label:'In Store',       value: products.filter(p => lowStockOp==='lte' ? p.stock_count>lowStockN : p.stock_count>=lowStockN).length, red: false },
     ];
 
-    const StockRow = ({ p }) => h('div', {
-      className: 'stock-product-row',
-      style:{
-        display:'grid', gridTemplateColumns:'36px 1fr auto', alignItems:'center', gap:10,
-        padding:'7px 14px', borderBottom:'1px solid var(--border)', transition:'background 0.1s',
-        background:'var(--surface)',
-      },
-      onMouseEnter:e=>e.currentTarget.style.background='var(--amber-light)',
-      onMouseLeave:e=>e.currentTarget.style.background='var(--surface)',
-    },
-      h('div', { className:'stock-product-thumb', style:{width:32,height:32,borderRadius:6,overflow:'hidden',flexShrink:0,background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,opacity:p.image_url?1:0.3} },
-        p.image_url ? h('img', { src:p.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '📦'
-      ),
-      h('div', { style:{minWidth:0} },
-        h('div', { className:'stock-product-name', style:{fontSize:12,fontWeight:600,color:'var(--text)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'} }, p.product_name||'Unnamed'),
-        h('div', { className:'stock-product-meta', style:{fontSize:10,color:'var(--muted)',marginTop:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'} }, (p.product_type ? p.product_type+', ' : '') + (p.category||''))
-      ),
-      h('div', { style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4} },
-        h('div', { className:'stock-product-badge', style:{
-          textAlign:'center', fontWeight:700, fontSize:9,
-          padding:'2px 7px', borderRadius:20,
-          background: p.stock_count===0 ? '#fee2e2' : '#fef9c3',
-          color:       p.stock_count===0 ? '#991b1b' : '#713f12',
-          border:      p.stock_count===0 ? '1px solid #fca5a5' : '1px solid #fde68a',
-          whiteSpace:'nowrap'
-        } },
-          p.stock_count===0 ? 'Out of stock' : p.stock_count+' left'
-        ),
-        h('button', {
-        className: 'btn-ghost',
-        title: purchaseOrders.some(o => o.id === p.id) ? 'View in Purchase Order' : orderingIds.includes(p.id) ? 'View in Pending Order' : 'Add to ordering',
-        style:{
-          fontSize:11, padding:'3px 9px', whiteSpace:'nowrap',
-          ...(purchaseOrders.some(o => o.id === p.id) ? {
-            color: '#166534',
-            borderColor: '#86efac',
-            background: '#dcfce7',
-          } : orderingIds.includes(p.id) ? {
-            color: 'var(--amber-dark)',
-            borderColor: 'var(--amber)',
-            background: 'var(--amber-light)',
-          } : {})
+    const StockRow = ({ p }) => {
+      const rowExpanded = expandedStockId === p.id;
+      const draft = rowExpanded ? (stockEditDraft || p) : p;
+      const upd = (patch) => setStockEditDraft(d => d ? {...d, ...patch} : {...p, ...patch});
+      const toggleExpand = () => {
+        if (rowExpanded) { setExpandedStockId(null); setStockEditDraft(null); }
+        else { setExpandedStockId(p.id); setStockEditDraft({...p}); }
+      };
+      const cancelEdit = () => { setExpandedStockId(null); setStockEditDraft(null); };
+      const saveEdit = () => {
+        const updated = { ...draft };
+        setProducts(prev => {
+          const next = prev.map(item => item.id === p.id ? { ...item, ...updated } : item);
+          persistProducts(next);
+          return next;
+        });
+        setExpandedStockId(null);
+        setStockEditDraft(null);
+      };
+      const handleStockImgReplace = (e) => {
+        const file = e.target.files?.[0]; if (!file) return;
+        resizeImage(file).then(dataUrl => upd({ image_url: dataUrl })).catch(()=>{});
+        e.target.value = '';
+      };
+      const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(p) : false;
+      const lbl = (text) => h('label', { style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em',color:'var(--muted)',display:'block',marginBottom:3} }, text);
+
+      return h('div', { key:p.id, style:{borderBottom:'1px solid var(--border)'} },
+        h('div', {
+          className: 'stock-product-row',
+          style:{
+            display:'grid', gridTemplateColumns:'36px 1fr auto', alignItems:'center', gap:10,
+            padding:'7px 14px', transition:'background 0.1s', cursor:'pointer',
+            background: rowExpanded ? 'var(--amber-light)' : 'var(--surface)',
+          },
+          onClick: toggleExpand,
+          onMouseEnter:e=>{ if(!rowExpanded) e.currentTarget.style.background='var(--amber-light)'; },
+          onMouseLeave:e=>{ if(!rowExpanded) e.currentTarget.style.background='var(--surface)'; },
         },
-        onClick:()=>{
-          if (purchaseOrders.some(o => o.id === p.id)) {
-            setStockTab('ordering');
-            setOrderingSubTab('purchase');
-            setHighlightedOrderId(p.id);
-            setTimeout(() => setHighlightedOrderId(null), 2000);
-          } else if (orderingIds.includes(p.id)) {
-            setStockTab('ordering');
-            setOrderingSubTab('pending');
-            setHighlightedOrderId(p.id);
-            setTimeout(() => setHighlightedOrderId(null), 2000);
-          } else {
-            const next = [p.id, ...orderingIds];
-            setOrderingIds(next);
-            localStorage.setItem('orderingIds', JSON.stringify(next));
-          }
-        }
-      }, purchaseOrders.some(o => o.id === p.id) ? 'Purchase Order' : orderingIds.includes(p.id) ? 'Pending Order' : 'Order')
-      )
-    );
+          h('div', { className:'stock-product-thumb', style:{width:32,height:32,borderRadius:6,overflow:'hidden',flexShrink:0,background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,opacity:p.image_url?1:0.3} },
+            p.image_url ? h('img', { src:p.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '📦'
+          ),
+          h('div', { style:{minWidth:0} },
+            h('div', { className:'stock-product-name', style:{fontSize:12,fontWeight:600,color:'var(--text)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'} }, p.product_name||'Unnamed'),
+            h('div', { className:'stock-product-meta', style:{fontSize:10,color:'var(--muted)',marginTop:1,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'} }, (p.product_type ? p.product_type+', ' : '') + (p.category||''))
+          ),
+          h('div', { style:{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4} },
+            h('div', { className:'stock-product-badge', style:{
+              textAlign:'center', fontWeight:700, fontSize:9,
+              padding:'2px 7px', borderRadius:20,
+              background: p.stock_count===0 ? '#fee2e2' : '#fef9c3',
+              color:       p.stock_count===0 ? '#991b1b' : '#713f12',
+              border:      p.stock_count===0 ? '1px solid #fca5a5' : '1px solid #fde68a',
+              whiteSpace:'nowrap'
+            } },
+              p.stock_count===0 ? 'Out of stock' : p.stock_count+' left'
+            ),
+            h('button', {
+            className: 'btn-ghost',
+            title: purchaseOrders.some(o => o.id === p.id) ? 'View in Purchase Order' : orderingIds.includes(p.id) ? 'View in Pending Order' : 'Add to ordering',
+            style:{
+              fontSize:11, padding:'3px 9px', whiteSpace:'nowrap',
+              ...(purchaseOrders.some(o => o.id === p.id) ? {
+                color: '#166534',
+                borderColor: '#86efac',
+                background: '#dcfce7',
+              } : orderingIds.includes(p.id) ? {
+                color: 'var(--amber-dark)',
+                borderColor: 'var(--amber)',
+                background: 'var(--amber-light)',
+              } : {})
+            },
+            onClick:(e)=>{
+              e.stopPropagation();
+              if (purchaseOrders.some(o => o.id === p.id)) {
+                setStockTab('ordering');
+                setOrderingSubTab('purchase');
+                setHighlightedOrderId(p.id);
+                setTimeout(() => setHighlightedOrderId(null), 2000);
+              } else if (orderingIds.includes(p.id)) {
+                setStockTab('ordering');
+                setOrderingSubTab('pending');
+                setHighlightedOrderId(p.id);
+                setTimeout(() => setHighlightedOrderId(null), 2000);
+              } else {
+                const next = [p.id, ...orderingIds];
+                setOrderingIds(next);
+                localStorage.setItem('orderingIds', JSON.stringify(next));
+              }
+            }
+          }, purchaseOrders.some(o => o.id === p.id) ? 'Purchase Order' : orderingIds.includes(p.id) ? 'Pending Order' : 'Order')
+          )
+        ),
+        /* ── EXPANDED EDIT FORM (full replica of queue row's expanded form) ── */
+        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--surface)'} },
+          /* ── Cancel / Save changes buttons ── */
+          h('div', { style:{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:12} },
+            h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:e=>{ e.stopPropagation(); cancelEdit(); } }, 'Cancel'),
+            h('button', {
+              className: (isDirty ? 'btn-amber save-changes-glow' : 'btn-ghost'),
+              style:{fontSize:12,padding:'6px 14px',transition:'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease'},
+              onClick:e=>{ e.stopPropagation(); if(isDirty) saveEdit(); },
+              disabled: !isDirty
+            }, 'Save changes')
+          ),
+          h('div', { style:{display:'grid',gridTemplateColumns:'110px minmax(0,1fr)',gap:'10px 14px',marginBottom:12} },
+            h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
+              h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image',
+                  onClick:()=>document.getElementById('stock-img-'+p.id)?.click() },
+                draft.image_url
+                  ? h('img', { src:draft.image_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block'} })
+                  : h('div', { style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,fontSize:24,color:'var(--muted)'} }, '📦', h('span',{style:{fontSize:9,textTransform:'uppercase',letterSpacing:'0.05em'}},'tap to add')),
+                h('div', { style:{position:'absolute',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',opacity:0,transition:'opacity 0.15s'}, onMouseEnter:e=>e.currentTarget.style.opacity=1, onMouseLeave:e=>e.currentTarget.style.opacity=0 },
+                  h('span',{style:{fontSize:18}},'🖼️')
+                ),
+                h('input', { id:'stock-img-'+p.id, type:'file', accept:'image/*', style:{display:'none'}, onChange:handleStockImgReplace })
+              ),
+              h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3,width:'100%'} },
+                h('div', {
+                  style:{width:90,height:90,borderRadius:8,border:'1px dashed var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',overflow:'hidden',position:'relative'},
+                  className:'img-box-animated',
+                  title: draft.qr_link_url ? 'View QR image' : 'Upload QR Link image',
+                  onClick: draft.qr_link_url ? (e=>{ e.stopPropagation(); setQrLightbox({url:draft.qr_link_url,id:p.id}); }) : (()=>document.getElementById('stock-qr-'+p.id)?.click())
+                },
+                  draft.qr_link_url
+                    ? h('img', { src:draft.qr_link_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block',cursor:'zoom-in'} })
+                    : h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,pointerEvents:'none'} },
+                        h('svg', { xmlns:'http://www.w3.org/2000/svg', width:20, height:20, viewBox:'0 0 24 24', fill:'none', stroke:'var(--muted)', strokeWidth:1.5, strokeLinecap:'round', strokeLinejoin:'round' },
+                          h('rect',{x:'3',y:'3',width:'7',height:'7',rx:'1'}),
+                          h('rect',{x:'14',y:'3',width:'7',height:'7',rx:'1'}),
+                          h('rect',{x:'3',y:'14',width:'7',height:'7',rx:'1'}),
+                          h('rect',{x:'14',y:'14',width:'3',height:'3',rx:'0.5'}),
+                          h('rect',{x:'19',y:'14',width:'2',height:'2',rx:'0.5'}),
+                          h('rect',{x:'14',y:'19',width:'2',height:'2',rx:'0.5'}),
+                          h('rect',{x:'18',y:'18',width:'3',height:'3',rx:'0.5'})
+                        ),
+                        h('span', { style:{fontSize:9,color:'var(--muted)',textAlign:'center',lineHeight:1.2,marginTop:2} }, 'QR Link')
+                      ),
+                  h('input', { id:'stock-qr-'+p.id, type:'file', accept:'image/*', style:{display:'none'},
+                    onChange: e => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onload = ev => { setQrCropStockTarget(true); setQrOriginalSrc(ev.target.result); setQrSavedCrop(null); setQrCropSrc(ev.target.result); };
+                      reader.readAsDataURL(file);
+                      e.target.value = '';
+                    }
+                  })
+                ),
+              )
+            ),
+            h('div', { style:{display:'flex',flexDirection:'column',gap:10,minWidth:0} },
+              h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10} },
+                h('div', null,
+                  lbl('Stock Qty'),
+                  h('div', { style:{display:'flex',alignItems:'center',gap:6} },
+                    h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:Math.max(0,(draft.stock_count||0)-1)});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '−'),
+                    h('span', { style:{minWidth:24,textAlign:'center',fontSize:13,fontWeight:700,color:'var(--text)',userSelect:'none'} }, draft.stock_count),
+                    h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:(draft.stock_count||0)+1});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '+')
+                  )
+                ),
+                h('div', null,
+                  lbl('ea. Price'),
+                  h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'(USD)', style:{padding:'5px 8px',fontSize:13}, value:draft.estimated_price||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0}) })
+                )
+              ),
+              h('div', { style:{minWidth:0} },
+                lbl('Supplier'),
+                (()=>{
+                  const sSupOpen = draft._supDropOpen;
+                  const selSup = suppliers.find(s=>s.name===draft.supplier);
+                  return h('div', { style:{position:'relative',minWidth:0} },
+                    sSupOpen && h('div', { style:{position:'fixed',inset:0,zIndex:299}, onClick:e=>{ e.stopPropagation(); upd({_supDropOpen:false}); } }),
+                    h('div', {
+                      className:'cat-custom-trigger'+(sSupOpen?' open':''),
+                      style:{padding:'5px 10px',fontSize:13,minHeight:32,background:'var(--surface)',borderColor:sSupOpen?'var(--amber)':undefined},
+                      onClick:e=>{ e.stopPropagation(); upd({_supDropOpen:!sSupOpen}); }
+                    },
+                      selSup && (selSup.logoUrl || selSup.imageUrl)
+                        ? h('img',{src:selSup.logoUrl || selSup.imageUrl,style:{width:18,height:18,borderRadius:4,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)',marginRight:6}})
+                        : draft.supplier ? h('div',{style:{width:18,height:18,borderRadius:4,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'var(--muted)',marginRight:6}},'?') : null,
+                      h('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:draft.supplier?'var(--text)':'var(--muted)',fontSize:13}}, draft.supplier||'')
+                    ),
+                    sSupOpen && h('div', {
+                      style:{position:'absolute',top:'100%',left:0,right:0,background:'var(--surface)',border:'1px solid var(--amber)',borderTop:'none',borderBottomLeftRadius:8,borderBottomRightRadius:8,boxShadow:'0 8px 20px rgba(0,0,0,0.15)',zIndex:400,overflow:'hidden',maxHeight:180,overflowY:'auto',scrollbarWidth:'none'}
+                    },
+                      h('div',{className:'cat-option placeholder'+((!draft.supplier)?' selected':''),onClick:e=>{ e.stopPropagation(); upd({supplier:'',_supDropOpen:false}); }},'\u00a0'),
+                      suppliers.map(s=>h('div',{
+                        key:s.name,
+                        className:'cat-option'+(draft.supplier===s.name?' selected':''),
+                        style:{display:'flex',alignItems:'center',gap:8},
+                        onClick:e=>{ e.stopPropagation(); upd({supplier:s.name,_supDropOpen:false}); }
+                      },
+                        s.logoUrl || s.imageUrl
+                          ? h('img',{src:s.logoUrl || s.imageUrl,style:{width:20,height:20,borderRadius:4,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                          : h('div',{style:{width:20,height:20,borderRadius:4,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'var(--muted)'}},'?'),
+                        h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}},s.name)
+                      ))
+                    )
+                  );
+                })()
+              ),
+              h('div', null,
+                lbl('Each Buying Price'),
+                h('div', { style:{position:'relative'} },
+                  !!(draft.product_price && draft.product_price !== '') && h('span', { style:{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '¥'),
+                  h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'original ¥', style:{padding:'5px 8px',fontSize:13,...(!!(draft.product_price && draft.product_price !== '') ? {paddingLeft:20} : {})}, value:draft.product_price||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_price:e.target.value}) })
+                )
+              ),
+              h('div', null,
+                lbl('Combine Buying Price'),
+                h('div', { onClick:e=>e.stopPropagation() }, h(CombinePriceSplit, { valueCny:draft.combine_price_cny, valueUsd:draft.combine_price, onChangeCny:v=>upd({combine_price_cny:v}), onChangeUsd:v=>upd({combine_price:v}) }))
+              )
+            )
+          ),
+          h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10} },
+            h('div', null,
+              lbl('Type of product'),
+              h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.product_type||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_type:e.target.value}) },
+                h('option', { value:'' }, ''),
+                productTypes.map(t=>h('option',{key:t,value:t},t))
+              )
+            ),
+            h('div', null,
+              lbl('Category'),
+              h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.category||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({category:e.target.value}) },
+                h('option', { value:'' }, ''),
+                categories.map(c=>h('option',{key:c,value:c},c))
+              )
+            )
+          ),
+          h('div', { style:{marginBottom:10} },
+            lbl('Product name'),
+            h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.product_name, placeholder:'Unnamed product', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_name:e.target.value}) })
+          ),
+          h('div', { style:{marginBottom:10} },
+            lbl('Tags'),
+            h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, placeholder:'e.g. wireless, portable', value:(draft.tags||[]).join(', '), onClick:e=>e.stopPropagation(),
+              onChange: e => upd({ tags: e.target.value.split(',').map(t=>t.trim()).filter(Boolean) }) })
+          ),
+          h('div', { style:{marginBottom:14} },
+            lbl('Description'),
+            h('textarea', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13,resize:'vertical',height:draft.description?64:32,lineHeight:1.5}, placeholder:'Product description…', value:draft.description||'', onClick:e=>e.stopPropagation(),
+              onChange: e => upd({ description: e.target.value }) })
+          )
+        )
+      );
+    };
 
     return h('div', { style:{position:'relative'} },
       leftNav,
@@ -6585,7 +6816,127 @@ function App() {
           setTagInput(localStorage.getItem('inv-draft-tags')||''); setView('upload');
         },
         onSearch: () => { setStockSearch(scanResult.value); setScanResult(null); }
-      })
+      }),
+      /* ── QR Link Preview Lightbox (Recrop / Replace / Remove) ── */
+      qrLightbox && h('div', {
+        style:{position:'fixed',inset:0,zIndex:10000,background:'rgba(0,0,0,0.85)',display:'flex',alignItems:'center',justifyContent:'center',cursor:'zoom-out'},
+        onClick:()=>setQrLightbox(null)
+      },
+        h('div', { style:{position:'relative',display:'inline-block'}, onClick:e=>e.stopPropagation() },
+          h('img', { src:qrLightbox.url, style:{width:'min(72vh, 88vw)',height:'min(72vh, 88vw)',objectFit:'contain',borderRadius:14,boxShadow:'0 8px 48px rgba(0,0,0,0.7)',display:'block',background:'var(--img-bg)'} }),
+          h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:12,marginTop:14} },
+            h('div', { style:{display:'flex',gap:10} },
+              /* Recrop */
+              h('button', {
+                style:{background:'rgba(186,117,23,0.22)',border:'1px solid rgba(186,117,23,0.55)',borderRadius:9,padding:'9px 20px',fontSize:13,fontWeight:500,color:'#fcd34d',cursor:'pointer',display:'flex',alignItems:'center',gap:6,backdropFilter:'blur(6px)',transition:'background 0.15s'},
+                onMouseEnter:e=>{ e.currentTarget.style.background='rgba(186,117,23,0.38)'; },
+                onMouseLeave:e=>{ e.currentTarget.style.background='rgba(186,117,23,0.22)'; },
+                onClick:e=>{ e.stopPropagation(); if (stockEditDraft && qrLightbox.id===stockEditDraft.id) { setQrCropStockTarget(true); setQrOriginalSrc(qrOriginalSrc||qrLightbox.url); setQrCropSrc(qrOriginalSrc||qrLightbox.url); setQrLightbox(null); return; } const idx=queue.findIndex(item=>item.id===qrLightbox.id); setQrCropQueueTarget(idx); setQrOriginalSrc(qrOriginalSrc||qrLightbox.url); setQrCropSrc(qrOriginalSrc||qrLightbox.url); setQrLightbox(null); },
+                title:'Re-crop this image'
+              },
+                h('svg',{xmlns:'http://www.w3.org/2000/svg',width:13,height:13,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},
+                  h('path',{d:'M6 2H2v4'}),h('path',{d:'M18 2h4v4'}),h('path',{d:'M6 22H2v-4'}),h('path',{d:'M18 22h4v-4'}),h('rect',{x:7,y:7,width:10,height:10,rx:1})
+                ),
+                'Recrop'
+              ),
+              /* Replace */
+              h('button', {
+                style:{background:'rgba(255,255,255,0.13)',border:'1px solid rgba(255,255,255,0.28)',borderRadius:9,padding:'9px 20px',fontSize:13,fontWeight:500,color:'#fff',cursor:'pointer',display:'flex',alignItems:'center',gap:6,backdropFilter:'blur(6px)',transition:'background 0.15s'},
+                onMouseEnter:e=>{ e.currentTarget.style.background='rgba(255,255,255,0.22)'; },
+                onMouseLeave:e=>{ e.currentTarget.style.background='rgba(255,255,255,0.13)'; },
+                onClick:e=>{ e.stopPropagation(); setQrOriginalSrc(null); if (stockEditDraft && qrLightbox.id===stockEditDraft.id) { document.getElementById('stock-qr-'+qrLightbox.id)?.click(); } else { document.getElementById('q-qr-'+qrLightbox.id)?.click(); } setQrLightbox(null); },
+                title:'Replace image'
+              },
+                h('svg',{xmlns:'http://www.w3.org/2000/svg',width:13,height:13,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},
+                  h('path',{d:'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'}),h('polyline',{points:'17 8 12 3 7 8'}),h('line',{x1:12,y1:3,x2:12,y2:15})
+                ),
+                'Replace'
+              ),
+              /* Remove */
+              h('button', {
+                style:{background:'rgba(239,68,68,0.18)',border:'1px solid rgba(239,68,68,0.45)',borderRadius:9,padding:'9px 20px',fontSize:13,fontWeight:500,color:'#fca5a5',cursor:'pointer',display:'flex',alignItems:'center',gap:6,backdropFilter:'blur(6px)',transition:'background 0.15s'},
+                onMouseEnter:e=>{ e.currentTarget.style.background='rgba(239,68,68,0.32)'; },
+                onMouseLeave:e=>{ e.currentTarget.style.background='rgba(239,68,68,0.18)'; },
+                onClick:e=>{ e.stopPropagation(); if (stockEditDraft && qrLightbox.id===stockEditDraft.id) { setStockEditDraft(d => d ? {...d, qr_link_url:''} : d); setQrOriginalSrc(null); setQrLightbox(null); return; } const idx=queue.findIndex(item=>item.id===qrLightbox.id); setQueue(prev=>prev.map((item,j)=>j===idx?{...item,qr_link_url:''}:item)); setQrOriginalSrc(null); setQrLightbox(null); },
+                title:'Remove QR image'
+              },
+                h('svg',{xmlns:'http://www.w3.org/2000/svg',width:13,height:13,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},
+                  h('polyline',{points:'3 6 5 6 21 6'}),h('path',{d:'M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'}),h('path',{d:'M10 11v6'}),h('path',{d:'M14 11v6'}),h('path',{d:'M9 6V4h6v2'})
+                ),
+                'Remove'
+              )
+            ),
+            h('p', { style:{fontSize:11,color:'rgba(255,255,255,0.38)',margin:0} }, 'Click anywhere outside to close')
+          )
+        ),
+        h('div', { style:{position:'absolute',top:18,right:22,display:'flex',gap:8} },
+          h('button', { style:{background:'rgba(255,255,255,0.15)',border:'1px solid rgba(255,255,255,0.3)',borderRadius:'50%',width:36,height:36,fontSize:18,color:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',backdropFilter:'blur(4px)'}, onClick:()=>setQrLightbox(null) }, '×')
+        )
+      ),
+      /* ── QR Link Crop Modal (mirrors SupplierCropModal) ── */
+      qrCropSrc && h('div', {
+        style:{ position:'fixed',inset:0,background:'rgba(0,0,0,0.78)',zIndex:99999,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px' },
+        onClick: e => { if(e.target===e.currentTarget) cancelQrCrop(); }
+      },
+        h('div', { style:{ background:'var(--surface)',borderRadius:16,width:'100%',maxWidth:640,display:'flex',flexDirection:'column',gap:0,boxShadow:'0 24px 64px rgba(0,0,0,0.5)',overflow:'hidden' } },
+          /* Header */
+          h('div', { style:{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px',borderBottom:'1px solid var(--border)' } },
+            h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+              h('div', { style:{fontSize:14,fontWeight:700,color:'var(--text)'} }, 'Crop QR Link Image')
+            ),
+            h('button', { onClick:cancelQrCrop, style:{background:'none',border:'none',cursor:'pointer',fontSize:22,color:'var(--muted)',lineHeight:1,padding:'4px 6px',borderRadius:6} }, '×')
+          ),
+          /* Canvas area */
+          h('div', { style:{ position:'relative',background:'#000',maxHeight:'60vh',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',userSelect:'none' } },
+            h('div', {
+              style:{
+                position:'relative',display:'inline-block',maxWidth:'100%',maxHeight:'60vh',lineHeight:0,
+                transformOrigin:'0 0',
+                transform: qrCropFrozenTransform,
+                transition: (qrCropDragging||qrCropResizing) ? 'none' : 'transform 0.2s ease-out',
+              }
+            },
+              h('img', {
+                ref: cropImgRef, src: qrCropSrc, alt:'QR to crop', draggable:false,
+                onLoad: () => {
+                  setQrCropImgLoaded(true);
+                  if (cropImgRef.current) {
+                    const iw=cropImgRef.current.offsetWidth, ih=cropImgRef.current.offsetHeight;
+                    setQrCropImgRect({w:iw,h:ih});
+                    if (qrSavedCrop && qrSavedCrop.w>0 && qrSavedCrop.h>0) {
+                      const sx=iw/cropImgRef.current.naturalWidth, sy=ih/cropImgRef.current.naturalHeight;
+                      setQrCrop({x:qrSavedCrop.x*sx, y:qrSavedCrop.y*sy, w:qrSavedCrop.w*sx, h:qrSavedCrop.h*sy});
+                    } else {
+                      const pad=24;
+                      setQrCrop({x:pad,y:pad,w:iw-pad*2,h:ih-pad*2});
+                    }
+                  }
+                },
+                style:{ maxWidth:'100%',maxHeight:'60vh',display:'block',userSelect:'none',WebkitUserSelect:'none' }
+              }),
+              qrCropImgLoaded && h('canvas', {
+                ref: qrCropCanvasRef,
+                style:{ position:'absolute',top:0,left:0,cursor:qrCropResizing?'crosshair':qrCropDragging?'move':'crosshair',touchAction:'none' },
+                onMouseDown:onQrCropMouseDown, onMouseMove:onQrCropMouseMove, onMouseUp:onQrCropMouseUp, onMouseLeave:onQrCropMouseUp,
+                onTouchStart:onQrCropMouseDown, onTouchMove:onQrCropMouseMove, onTouchEnd:onQrCropMouseUp,
+              })
+            )
+          ),
+          /* Footer */
+          h('div', { style:{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 20px',borderTop:'1px solid var(--border)',gap:10 } },
+            h('div', { style:{fontSize:11,color:'var(--muted)'} },
+              qrCrop.w>4 && qrCrop.h>4
+                ? `Crop: ${Math.round(qrCrop.w)} × ${Math.round(qrCrop.h)} px`
+                : 'Draw a selection on the image above'
+            ),
+            h('div', { style:{display:'flex',gap:8} },
+              h('button', { onClick: () => { if(cropImgRef.current){const iw=cropImgRef.current.offsetWidth,ih=cropImgRef.current.offsetHeight; setQrCrop({x:0,y:0,w:iw,h:ih}); } }, style:{fontSize:12,padding:'8px 16px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer',fontFamily:'var(--font)',fontWeight:500} }, 'Revert'),
+              h('button', { onClick:cancelQrCrop, style:{fontSize:12,padding:'8px 16px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text)',cursor:'pointer',fontFamily:'var(--font)',fontWeight:500} }, 'Cancel'),
+              h('button', { onClick: qrCrop.w>4&&qrCrop.h>4 ? confirmQrCrop : undefined, style:{fontSize:12,padding:'8px 20px',borderRadius:8,border:'none',background:qrCrop.w>4&&qrCrop.h>4?'#BA7517':'#a1a1aa',color:'#fff',cursor:qrCrop.w>4&&qrCrop.h>4?'pointer':'not-allowed',fontFamily:'var(--font)',fontWeight:600,transition:'background 0.15s'} }, '✓  Apply Crop')
+            )
+          )
+        )
+      )
     );
   }
 
@@ -7427,7 +7778,7 @@ function App() {
               style:{background:'rgba(186,117,23,0.22)',border:'1px solid rgba(186,117,23,0.55)',borderRadius:9,padding:'9px 20px',fontSize:13,fontWeight:500,color:'#fcd34d',cursor:'pointer',display:'flex',alignItems:'center',gap:6,backdropFilter:'blur(6px)',transition:'background 0.15s'},
               onMouseEnter:e=>{ e.currentTarget.style.background='rgba(186,117,23,0.38)'; },
               onMouseLeave:e=>{ e.currentTarget.style.background='rgba(186,117,23,0.22)'; },
-              onClick:e=>{ e.stopPropagation(); const idx=queue.findIndex(item=>item.id===qrLightbox.id); setQrCropQueueTarget(idx); setQrOriginalSrc(qrOriginalSrc||qrLightbox.url); setQrCropSrc(qrOriginalSrc||qrLightbox.url); setQrLightbox(null); },
+              onClick:e=>{ e.stopPropagation(); if (stockEditDraft && qrLightbox.id===stockEditDraft.id) { setQrCropStockTarget(true); setQrOriginalSrc(qrOriginalSrc||qrLightbox.url); setQrCropSrc(qrOriginalSrc||qrLightbox.url); setQrLightbox(null); return; } const idx=queue.findIndex(item=>item.id===qrLightbox.id); setQrCropQueueTarget(idx); setQrOriginalSrc(qrOriginalSrc||qrLightbox.url); setQrCropSrc(qrOriginalSrc||qrLightbox.url); setQrLightbox(null); },
               title:'Re-crop this image'
             },
               h('svg',{xmlns:'http://www.w3.org/2000/svg',width:13,height:13,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},
@@ -7440,7 +7791,7 @@ function App() {
               style:{background:'rgba(255,255,255,0.13)',border:'1px solid rgba(255,255,255,0.28)',borderRadius:9,padding:'9px 20px',fontSize:13,fontWeight:500,color:'#fff',cursor:'pointer',display:'flex',alignItems:'center',gap:6,backdropFilter:'blur(6px)',transition:'background 0.15s'},
               onMouseEnter:e=>{ e.currentTarget.style.background='rgba(255,255,255,0.22)'; },
               onMouseLeave:e=>{ e.currentTarget.style.background='rgba(255,255,255,0.13)'; },
-              onClick:e=>{ e.stopPropagation(); setQrOriginalSrc(null); document.getElementById('q-qr-'+qrLightbox.id)?.click(); setQrLightbox(null); },
+              onClick:e=>{ e.stopPropagation(); setQrOriginalSrc(null); if (stockEditDraft && qrLightbox.id===stockEditDraft.id) { document.getElementById('stock-qr-'+qrLightbox.id)?.click(); } else { document.getElementById('q-qr-'+qrLightbox.id)?.click(); } setQrLightbox(null); },
               title:'Replace image'
             },
               h('svg',{xmlns:'http://www.w3.org/2000/svg',width:13,height:13,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},
@@ -7453,7 +7804,7 @@ function App() {
               style:{background:'rgba(239,68,68,0.18)',border:'1px solid rgba(239,68,68,0.45)',borderRadius:9,padding:'9px 20px',fontSize:13,fontWeight:500,color:'#fca5a5',cursor:'pointer',display:'flex',alignItems:'center',gap:6,backdropFilter:'blur(6px)',transition:'background 0.15s'},
               onMouseEnter:e=>{ e.currentTarget.style.background='rgba(239,68,68,0.32)'; },
               onMouseLeave:e=>{ e.currentTarget.style.background='rgba(239,68,68,0.18)'; },
-              onClick:e=>{ e.stopPropagation(); const idx=queue.findIndex(item=>item.id===qrLightbox.id); setQueue(prev=>prev.map((item,j)=>j===idx?{...item,qr_link_url:''}:item)); setQrOriginalSrc(null); setQrLightbox(null); },
+              onClick:e=>{ e.stopPropagation(); if (stockEditDraft && qrLightbox.id===stockEditDraft.id) { setStockEditDraft(d => d ? {...d, qr_link_url:''} : d); setQrOriginalSrc(null); setQrLightbox(null); return; } const idx=queue.findIndex(item=>item.id===qrLightbox.id); setQueue(prev=>prev.map((item,j)=>j===idx?{...item,qr_link_url:''}:item)); setQrOriginalSrc(null); setQrLightbox(null); },
               title:'Remove QR image'
             },
               h('svg',{xmlns:'http://www.w3.org/2000/svg',width:13,height:13,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:2,strokeLinecap:'round',strokeLinejoin:'round'},
@@ -8106,9 +8457,21 @@ function App() {
                     qrPriceLocked ? '🔒' : '🔓'
                   )
                 ),
-                h('div', { className:'combine-price-pill', style: qrPriceLocked ? { borderColor:'#BA7517' } : {} },
+                h('div', { className:'combine-price-pill combine-price-pill-animated', style: qrPriceLocked ? { borderColor:'#BA7517' } : {} },
                   /* ¥ part — new field, left */
-                  h('div', { style:{position:'relative',flex:1,minWidth:0} },
+                  h('div', {
+                    style:{
+                      position:'relative', flex:1, minWidth:0,
+                      border:'1px solid ' + (qrPriceLocked ? '#BA7517' : ((addPageCombineHoverSide==='cny'||addPageCombineFocusSide==='cny') ? 'var(--amber)' : 'var(--border)')), borderRight:'none',
+                      borderRadius:'8px 0 0 8px', background:'var(--surface)',
+                      transform: (addPageCombineHoverSide==='cny'||addPageCombineFocusSide==='cny') ? 'translateY(-2px)' : undefined,
+                      boxShadow: (addPageCombineHoverSide==='cny'||addPageCombineFocusSide==='cny') ? '0 4px 14px rgba(186,117,23,0.18)' : undefined,
+                      zIndex: (addPageCombineHoverSide==='cny'||addPageCombineFocusSide==='cny') ? 2 : 1,
+                      transition:'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease'
+                    },
+                    onMouseEnter: qrPriceLocked || !!(pending.product_price && pending.product_price !== '') ? undefined : ()=>setAddPageCombineHoverSide('cny'),
+                    onMouseLeave: ()=>setAddPageCombineHoverSide(s=>s==='cny'?null:s)
+                  },
                     !!(pending.combine_price_cny && pending.combine_price_cny !== '') && h('span', { style:{position:'absolute',left:4,top:'50%',transform:'translateY(-50%)',fontSize:isMobile?10:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '¥'),
                     h('input', {
                       className:'field-input',
@@ -8118,12 +8481,27 @@ function App() {
                       readOnly: qrPriceLocked,
                       disabled: !qrPriceLocked && !!(pending.product_price && pending.product_price !== ''),
                       title: qrPriceLocked ? '' : (!!(pending.product_price && pending.product_price !== '') ? 'Clear Product Price first' : ''),
-                      style: { fontSize: isMobile?'10px':'12px', padding:'8px 4px', paddingLeft: !!(pending.combine_price_cny && pending.combine_price_cny !== '') ? 12 : undefined, border:'none', borderRadius:0, ...(qrPriceLocked ? { background:darkMode?'#2a1f00':'#fef9f0', cursor:'not-allowed' } : (!!(pending.product_price && pending.product_price !== '') ? { opacity:0.45, cursor:'not-allowed', background:'var(--bg)' } : { background:'transparent' })) },
+                      style: { fontSize: isMobile?'10px':'12px', padding:'8px 4px', paddingLeft: !!(pending.combine_price_cny && pending.combine_price_cny !== '') ? 12 : undefined, border:'none', borderRadius:'7px 0 0 7px', ...(qrPriceLocked ? { background:darkMode?'#2a1f00':'#fef9f0', cursor:'not-allowed' } : (!!(pending.product_price && pending.product_price !== '') ? { opacity:0.45, cursor:'not-allowed', background:'var(--bg)' } : { background:'transparent' })) },
+                      onFocus: qrPriceLocked || !!(pending.product_price && pending.product_price !== '') ? undefined : ()=>setAddPageCombineFocusSide('cny'),
+                      onBlur: ()=>setAddPageCombineFocusSide(s=>s==='cny'?null:s),
                       onChange: qrPriceLocked ? undefined : e => { saveCombinePriceCny(e.target.value); setPending(p => p ? {...p, combine_price_cny: e.target.value} : p); }
                     })
                   ),
+                  h('div', { style:{width:0,alignSelf:'stretch',background:'transparent'} }),
                   /* $ part — existing field, right */
-                  h('div', { style:{position:'relative',flex:1,minWidth:0,borderLeft:'1px solid var(--border)'} },
+                  h('div', {
+                    style:{
+                      position:'relative', flex:1, minWidth:0,
+                      border:'1px solid ' + (qrPriceLocked ? '#BA7517' : ((addPageCombineHoverSide==='usd'||addPageCombineFocusSide==='usd') ? 'var(--amber)' : 'var(--border)')), borderLeft:'none',
+                      borderRadius:'0 8px 8px 0', background:'var(--surface)',
+                      transform: (addPageCombineHoverSide==='usd'||addPageCombineFocusSide==='usd') ? 'translateY(-2px)' : undefined,
+                      boxShadow: (addPageCombineHoverSide==='usd'||addPageCombineFocusSide==='usd') ? '0 4px 14px rgba(186,117,23,0.18)' : undefined,
+                      zIndex: (addPageCombineHoverSide==='usd'||addPageCombineFocusSide==='usd') ? 2 : 1,
+                      transition:'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease'
+                    },
+                    onMouseEnter: qrPriceLocked || !!(pending.product_price && pending.product_price !== '') ? undefined : ()=>setAddPageCombineHoverSide('usd'),
+                    onMouseLeave: ()=>setAddPageCombineHoverSide(s=>s==='usd'?null:s)
+                  },
                     !!(pending.combine_price && pending.combine_price !== '') && h('span', { style:{position:'absolute',left:4,top:'50%',transform:'translateY(-50%)',fontSize:isMobile?10:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '$'),
                     h('input', {
                       className:'field-input',
@@ -8133,7 +8511,9 @@ function App() {
                       readOnly: qrPriceLocked,
                       disabled: !qrPriceLocked && !!(pending.product_price && pending.product_price !== ''),
                       title: qrPriceLocked ? '' : (!!(pending.product_price && pending.product_price !== '') ? 'Clear Product Price first' : ''),
-                      style: { fontSize: isMobile?'10px':'12px', padding:'8px 4px', paddingLeft: !!(pending.combine_price && pending.combine_price !== '') ? 12 : undefined, border:'none', borderRadius:0, ...(qrPriceLocked ? { background:darkMode?'#2a1f00':'#fef9f0', cursor:'not-allowed' } : (!!(pending.product_price && pending.product_price !== '') ? { opacity:0.45, cursor:'not-allowed', background:'var(--bg)' } : { background:'transparent' })) },
+                      style: { fontSize: isMobile?'10px':'12px', padding:'8px 4px', paddingLeft: !!(pending.combine_price && pending.combine_price !== '') ? 12 : undefined, border:'none', borderRadius:'0 7px 7px 0', ...(qrPriceLocked ? { background:darkMode?'#2a1f00':'#fef9f0', cursor:'not-allowed' } : (!!(pending.product_price && pending.product_price !== '') ? { opacity:0.45, cursor:'not-allowed', background:'var(--bg)' } : { background:'transparent' })) },
+                      onFocus: qrPriceLocked || !!(pending.product_price && pending.product_price !== '') ? undefined : ()=>setAddPageCombineFocusSide('usd'),
+                      onBlur: ()=>setAddPageCombineFocusSide(s=>s==='usd'?null:s),
                       onChange: qrPriceLocked ? undefined : e => { saveCombinePrice(e.target.value); setPending(p => p ? {...p, combine_price: e.target.value} : p); }
                     })
                   )
@@ -8234,8 +8614,8 @@ function App() {
         )
       )
     ),
-    uploadTab === 'product' && queue.length>0 && h('div', { style:{marginTop:16} },
-      h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8} },
+    uploadTab === 'product' && queue.length>0 && h('div', { style:{marginTop:16,paddingBottom:22} },
+      h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,position:'sticky',top:48,zIndex:90,background:'var(--bg)',padding:'8px 0'} },
         h('div', { style:{display:'flex',alignItems:'center',gap:8} },
           h('p', { style:{fontSize:12,fontWeight:600,color:'var(--muted)',margin:0,textTransform:'uppercase',letterSpacing:'0.05em'} }, queue.length+' Product'+(queue.length!==1?'s':'')+' — '+queue.reduce((s,q)=>s+(q.stock_count||1),0)+' Unit'+(queue.reduce((s,q)=>s+(q.stock_count||1),0)!==1?'s':'')),
           h(QueueViewToggle, { mode:queueViewMode, setMode:changeQueueViewMode })
@@ -8297,10 +8677,12 @@ function App() {
                     e.stopPropagation();
                     try{ e.target.setPointerCapture(e.pointerId); } catch(_){}
                     const start=Date.now();
+                    setQrGroupHoldPct(p=>({...p,[key]:1}));
                     const tick=()=>{
                       const elapsed=Date.now()-start;
-                      const pct=Math.min(100,(elapsed/500)*100);
-                      setQrGroupHoldPct(p=>({...p,[key]:pct}));
+                      const pct=Math.min(100,(elapsed/1000)*100);
+                      const el=_queueBarRefMap.get('grp-'+key);
+                      if(el) el.style.height=pct+'%';
                       if(pct<100){ _queueHoldMap.set('grp-'+key,requestAnimationFrame(tick)); }
                       else{ _queueHoldMap.delete('grp-'+key); setQrGroupHoldPct(p=>({...p,[key]:0})); setQrGroupDeleteConfirm(p=>({...p,[key]:true})); }
                     };
@@ -8309,17 +8691,21 @@ function App() {
                   onPointerUp:()=>{
                     const raf=_queueHoldMap.get('grp-'+key);
                     if(raf){ cancelAnimationFrame(raf); _queueHoldMap.delete('grp-'+key); }
+                    const el=_queueBarRefMap.get('grp-'+key);
+                    if(el) el.style.height='0%';
                     if((qrGroupHoldPct[key]||0)>0&&!qrGroupDeleteConfirm[key]) setQrGroupHoldPct(p=>({...p,[key]:0}));
                   },
                   onPointerCancel:()=>{
                     const raf=_queueHoldMap.get('grp-'+key);
                     if(raf){ cancelAnimationFrame(raf); _queueHoldMap.delete('grp-'+key); }
+                    const el=_queueBarRefMap.get('grp-'+key);
+                    if(el) el.style.height='0%';
                     if((qrGroupHoldPct[key]||0)>0&&!qrGroupDeleteConfirm[key]) setQrGroupHoldPct(p=>({...p,[key]:0}));
                   }
                 },
                 /* hold progress bar */
                 (qrGroupHoldPct[key]||0)>0 && !qrGroupDeleteConfirm[key] && h('div',{style:{position:'absolute',left:0,top:0,width:3,height:'100%',borderRadius:'3px 0 0 3px',background:'var(--border)',pointerEvents:'none',zIndex:5,overflow:'hidden'}},
-                  h('div',{style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:(qrGroupHoldPct[key]||0)+'%',transition:'height 0.05s linear'}})
+                  h('div',{ref:el=>{ if(el) _queueBarRefMap.set('grp-'+key, el); },style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:'0%'}})
                 ),
                   /* QR image */
                   h('div', { style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:key==='__none__'?'1px dashed var(--border)':'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:key!=='__none__'?'zoom-in':'pointer'}, onClick:e=>{ e.stopPropagation(); if(key!=='__none__'){ setQrLightbox({url:key,id:repQ.id}); } else { document.getElementById('qr-grp-input-'+repQ.id)?.click(); } } },
@@ -8438,15 +8824,17 @@ function App() {
                       e.stopPropagation();
                       try { e.target.setPointerCapture(e.pointerId); } catch(_) {}
                       const start = Date.now();
+                      upd({ _holding: true });
                       const tick = () => {
                         const elapsed = Date.now() - start;
-                        const pct = Math.min(100, (elapsed / 500) * 100);
-                        upd({ _holdPct: pct });
+                        const pct = Math.min(100, (elapsed / 1000) * 100);
+                        const el = _queueBarRefMap.get('grpitem-'+q.id);
+                        if (el) el.style.height = pct+'%';
                         if (pct < 100) {
                           _queueHoldMap.set('grpitem-'+q.id, requestAnimationFrame(tick));
                         } else {
                           _queueHoldMap.delete('grpitem-'+q.id);
-                          upd({ _holdPct: 0, _deleteConfirm: true });
+                          upd({ _holding: false, _deleteConfirm: true });
                         }
                       };
                       _queueHoldMap.set('grpitem-'+q.id, requestAnimationFrame(tick));
@@ -8454,9 +8842,10 @@ function App() {
                     const cancelHold = () => {
                       const raf = _queueHoldMap.get('grpitem-'+q.id);
                       if (raf) { cancelAnimationFrame(raf); _queueHoldMap.delete('grpitem-'+q.id); }
-                      if ((q._holdPct || 0) > 0 && !q._deleteConfirm) upd({ _holdPct: 0 });
+                      const el = _queueBarRefMap.get('grpitem-'+q.id);
+                      if (el) el.style.height = '0%';
+                      if (q._holding && !q._deleteConfirm) upd({ _holding: false });
                     };
-                    const holdPct = q._holdPct || 0;
 
                     return h('div', { key:q.id, style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',position:'relative'} },
 
@@ -8484,14 +8873,17 @@ function App() {
                         onPointerDown: startHold,
                         onPointerUp: cancelHold,
                         onPointerCancel: cancelHold,
-                        style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',cursor:'pointer',userSelect:'none',position:'relative',touchAction:'pan-y',opacity:q._deleteConfirm?0.25:1,transition:'opacity 0.2s ease'}
+                        onMouseEnter: e => { if (!rowExpanded) e.currentTarget.style.background = 'var(--amber-light)'; },
+                        onMouseLeave: e => { if (!rowExpanded) e.currentTarget.style.background = 'var(--surface)'; },
+                        style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',cursor:'pointer',userSelect:'none',position:'relative',touchAction:'pan-y',opacity:q._deleteConfirm?0.25:1,background: rowExpanded ? 'var(--amber-light)' : 'var(--surface)', transition:'opacity 0.2s ease, background 0.1s'}
                       },
                       /* hold progress — vertical line at left edge */
-                      holdPct > 0 && !q._deleteConfirm && h('div', {
+                      q._holding && !q._deleteConfirm && h('div', {
                         style:{position:'absolute',left:0,top:0,width:3,height:'100%',borderRadius:'3px 0 0 3px',background:'var(--border)',pointerEvents:'none',zIndex:5,overflow:'hidden'}
                       },
                         h('div', {
-                          style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height: holdPct+'%',transition:'height 0.05s linear'}
+                          ref: el => { if (el) _queueBarRefMap.set('grpitem-'+q.id, el); },
+                          style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:'0%'}
                         })
                       ),
                         h('div', { style:{position:'relative',width:44,height:44,flexShrink:0,borderRadius:7,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff'} },
@@ -8510,12 +8902,12 @@ function App() {
                         h('div', { style:{display:'flex',alignItems:'center',gap:4,flexShrink:0} },
                           qtyOpen
                             ? h('div',{'data-qty-stepper':true,style:{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,width:80,height:28},onClick:e=>e.stopPropagation()},
-                                h('button',{onClick:e=>{e.stopPropagation();upd({stock_count:Math.max(0,q.stock_count-1)});},className:'hdr-qty-btn-minus',style:{position:'absolute',right:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid #3a3a3e',background:'#1c1c1f',color:'#f4f4f5',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.4)'}},'−'),
+                                h('button',{onClick:e=>{e.stopPropagation();upd({stock_count:Math.max(0,q.stock_count-1)});},className:'hdr-qty-btn-minus',style:{position:'absolute',right:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow: darkMode?'0 1px 4px rgba(0,0,0,0.4)':'0 1px 3px rgba(0,0,0,0.15)'}},'−'),
                                 h('span',{style:{position:'relative',zIndex:1,fontSize:12,fontWeight:700,color:'var(--text)',minWidth:16,textAlign:'center',userSelect:'none'}},q.stock_count),
-                                h('button',{onClick:e=>{e.stopPropagation();upd({stock_count:q.stock_count+1});},className:'hdr-qty-btn-plus',style:{position:'absolute',left:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid #3a3a3e',background:'#1c1c1f',color:'#f4f4f5',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.4)'}},'+')
+                                h('button',{onClick:e=>{e.stopPropagation();upd({stock_count:q.stock_count+1});},className:'hdr-qty-btn-plus',style:{position:'absolute',left:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow: darkMode?'0 1px 4px rgba(0,0,0,0.4)':'0 1px 3px rgba(0,0,0,0.15)'}},'+')
                               )
-                            : h('div',{'data-qty-stepper':true,style:{display:'flex',alignItems:'center',flexShrink:0,background:'#1c1c1f',borderRadius:10,overflow:'hidden',border:'1px solid #3a3a3e',cursor:'pointer'},onClick:e=>{e.stopPropagation();setQueue(prev=>prev.map((item,j)=>j===realIndex?{...item,_qtyOpen:true}:item._qtyOpen?{...item,_qtyOpen:false}:item));}},
-                              h('span',{style:{fontSize:13,fontWeight:700,color:'#f4f4f5',padding:'3px 18px',letterSpacing:'0.01em',userSelect:'none'}},'×'+q.stock_count)
+                            : h('div',{'data-qty-stepper':true,style:{display:'flex',alignItems:'center',flexShrink:0,background:'var(--bg)',borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',cursor:'pointer',transition:'border-color 0.15s'},onMouseEnter:e=>e.currentTarget.style.borderColor='var(--muted)',onMouseLeave:e=>e.currentTarget.style.borderColor='var(--border)',onClick:e=>{e.stopPropagation();setQueue(prev=>prev.map((item,j)=>j===realIndex?{...item,_qtyOpen:true}:item._qtyOpen?{...item,_qtyOpen:false}:item));}},
+                              h('span',{style:{fontSize:13,fontWeight:700,color:'var(--text)',padding:'3px 18px',letterSpacing:'0.01em',userSelect:'none'}},'×'+q.stock_count)
                             )
                         )
                       ),
@@ -8523,7 +8915,7 @@ function App() {
                       rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',opacity:q._deleteConfirm?0.25:1,transition:'opacity 0.2s ease',pointerEvents:q._deleteConfirm?'none':undefined} },
                         h('div', { style:{display:'grid',gridTemplateColumns:'110px minmax(0,1fr)',gap:'10px 14px',marginBottom:12} },
                           h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
-                            h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, title:'Click to replace image',
+                            h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image',
                                 onClick:()=>document.getElementById('qg-img-'+q.id)?.click() },
                               q.image_url
                                 ? h('img', { src:q.image_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block'} })
@@ -8536,6 +8928,7 @@ function App() {
                             h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3,width:'100%'} },
                               h('div', {
                                 style:{width:90,height:90,borderRadius:8,border:'1px dashed var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',overflow:'hidden',position:'relative'},
+                                className:'img-box-animated',
                                 title: q.qr_link_url ? 'View QR image' : 'Upload QR Link image',
                                 onClick: q.qr_link_url ? (e=>{ e.stopPropagation(); setQrLightbox({url:q.qr_link_url,id:q.id}); }) : (()=>document.getElementById('qg-qr-'+q.id)?.click())
                               },
@@ -8588,7 +8981,7 @@ function App() {
                               ),
                               h('div', null,
                                 lbl('ea. Price'),
-                                h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'(USD)', style:{padding:'5px 8px',fontSize:13}, value:q.estimated_price||'', onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0}) })
+                                h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'(USD)', style:{padding:'5px 8px',fontSize:13}, value:q.estimated_price||'', onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0}) })
                               )
                             ),
                             h('div', { style:{minWidth:0} },
@@ -8631,7 +9024,7 @@ function App() {
                               lbl('Each Buying Price'),
                               h('div', { style:{position:'relative'} },
                                 !!(q.product_price && q.product_price !== '') && h('span', { style:{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '¥'),
-                                h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'original ¥', style:{padding:'5px 8px',fontSize:13,...(!!(q.product_price && q.product_price !== '') ? {paddingLeft:20} : {})}, value:q.product_price||'', onChange:e=>upd({product_price:e.target.value}) })
+                                h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'original ¥', style:{padding:'5px 8px',fontSize:13,...(!!(q.product_price && q.product_price !== '') ? {paddingLeft:20} : {})}, value:q.product_price||'', onChange:e=>upd({product_price:e.target.value}) })
                               )
                             ),
                             h('div', null,
@@ -8643,14 +9036,14 @@ function App() {
                         h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10} },
                           h('div', null,
                             lbl('Type of product'),
-                            h('select', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, value:q.product_type||'', onChange:e=>upd({product_type:e.target.value}) },
+                            h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:q.product_type||'', onChange:e=>upd({product_type:e.target.value}) },
                               h('option', { value:'' }, ''),
                               productTypes.map(t=>h('option',{key:t,value:t},t))
                             )
                           ),
                           h('div', null,
                             lbl('Category'),
-                            h('select', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, value:q.category||'', onChange:e=>upd({category:e.target.value}) },
+                            h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:q.category||'', onChange:e=>upd({category:e.target.value}) },
                               h('option', { value:'' }, ''),
                               categories.map(c=>h('option',{key:c,value:c},c))
                             )
@@ -8658,16 +9051,16 @@ function App() {
                         ),
                         h('div', { style:{marginBottom:10} },
                           lbl('Product name'),
-                          h('input', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, value:q.product_name, placeholder:'Unnamed product', onChange:e=>upd({product_name:e.target.value}) })
+                          h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:q.product_name, placeholder:'Unnamed product', onChange:e=>upd({product_name:e.target.value}) })
                         ),
                         h('div', { style:{marginBottom:10} },
                           lbl('Tags'),
-                          h('input', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, placeholder:'e.g. wireless, portable', value:(q.tags||[]).join(', '),
+                          h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, placeholder:'e.g. wireless, portable', value:(q.tags||[]).join(', '),
                             onChange: e => upd({ tags: e.target.value.split(',').map(t=>t.trim()).filter(Boolean) }) })
                         ),
                         h('div', null,
                           lbl('Description'),
-                          h('textarea', { className:'field-input', style:{padding:'5px 8px',fontSize:13,resize:'vertical',minHeight:64,lineHeight:1.5}, placeholder:'Product description…', value:q.description||'',
+                          h('textarea', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13,resize:'vertical',minHeight:64,lineHeight:1.5}, placeholder:'Product description…', value:q.description||'',
                             onChange: e => upd({ description: e.target.value }) })
                         )
                       )
@@ -8723,20 +9116,22 @@ function App() {
                     e.stopPropagation();
                     try{ e.target.setPointerCapture(e.pointerId); } catch(_){}
                     const start=Date.now();
+                    setSupGroupHoldPct(p=>({...p,[key]:1}));
                     const tick=()=>{
                       const elapsed=Date.now()-start;
-                      const pct=Math.min(100,(elapsed/500)*100);
-                      setSupGroupHoldPct(p=>({...p,[key]:pct}));
+                      const pct=Math.min(100,(elapsed/1000)*100);
+                      const el=_queueBarRefMap.get('supgrp-'+key);
+                      if(el) el.style.height=pct+'%';
                       if(pct<100){ _queueHoldMap.set('supgrp-'+key,requestAnimationFrame(tick)); }
                       else{ _queueHoldMap.delete('supgrp-'+key); setSupGroupHoldPct(p=>({...p,[key]:0})); setSupGroupDeleteConfirm(p=>({...p,[key]:true})); }
                     };
                     _queueHoldMap.set('supgrp-'+key,requestAnimationFrame(tick));
                   },
-                  onPointerUp:()=>{ const raf=_queueHoldMap.get('supgrp-'+key); if(raf){ cancelAnimationFrame(raf); _queueHoldMap.delete('supgrp-'+key); } if((supGroupHoldPct[key]||0)>0&&!supGroupDeleteConfirm[key]) setSupGroupHoldPct(p=>({...p,[key]:0})); },
-                  onPointerCancel:()=>{ const raf=_queueHoldMap.get('supgrp-'+key); if(raf){ cancelAnimationFrame(raf); _queueHoldMap.delete('supgrp-'+key); } if((supGroupHoldPct[key]||0)>0&&!supGroupDeleteConfirm[key]) setSupGroupHoldPct(p=>({...p,[key]:0})); }
+                  onPointerUp:()=>{ const raf=_queueHoldMap.get('supgrp-'+key); if(raf){ cancelAnimationFrame(raf); _queueHoldMap.delete('supgrp-'+key); } const el=_queueBarRefMap.get('supgrp-'+key); if(el) el.style.height='0%'; if((supGroupHoldPct[key]||0)>0&&!supGroupDeleteConfirm[key]) setSupGroupHoldPct(p=>({...p,[key]:0})); },
+                  onPointerCancel:()=>{ const raf=_queueHoldMap.get('supgrp-'+key); if(raf){ cancelAnimationFrame(raf); _queueHoldMap.delete('supgrp-'+key); } const el=_queueBarRefMap.get('supgrp-'+key); if(el) el.style.height='0%'; if((supGroupHoldPct[key]||0)>0&&!supGroupDeleteConfirm[key]) setSupGroupHoldPct(p=>({...p,[key]:0})); }
                 },
                 (supGroupHoldPct[key]||0)>0 && !supGroupDeleteConfirm[key] && h('div',{style:{position:'absolute',left:0,top:0,width:3,height:'100%',borderRadius:'3px 0 0 3px',background:'var(--border)',pointerEvents:'none',zIndex:5,overflow:'hidden'}},
-                  h('div',{style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:(supGroupHoldPct[key]||0)+'%',transition:'height 0.05s linear'}})
+                  h('div',{ref:el=>{ if(el) _queueBarRefMap.set('supgrp-'+key, el); },style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:'0%'}})
                 ),
                 /* supplier imageUrl — the "Link to supplier" image shown large on the left */
                 h('div', { style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:supplierImgUrl?'1px solid var(--border)':'1px dashed var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:supplierImgUrl?'zoom-in':'default'}, onClick:e=>{ e.stopPropagation(); if(supplierImgUrl) setSavedSupplierImgPreviewUrl(supplierImgUrl); else if(_s) _goToSupplier(e); } },
@@ -8857,17 +9252,18 @@ function App() {
                       e.stopPropagation();
                       try { e.target.setPointerCapture(e.pointerId); } catch(_) {}
                       const start = Date.now();
+                      upd({ _holding: true });
                       const tick = () => {
                         const elapsed = Date.now() - start;
-                        const pct = Math.min(100, (elapsed / 500) * 100);
-                        upd({ _holdPct: pct });
+                        const pct = Math.min(100, (elapsed / 1000) * 100);
+                        const el = _queueBarRefMap.get('supgrpitem-'+q.id);
+                        if (el) el.style.height = pct+'%';
                         if (pct < 100) { _queueHoldMap.set('supgrpitem-'+q.id, requestAnimationFrame(tick)); }
-                        else { _queueHoldMap.delete('supgrpitem-'+q.id); upd({ _holdPct: 0, _deleteConfirm: true }); }
+                        else { _queueHoldMap.delete('supgrpitem-'+q.id); upd({ _holding: false, _deleteConfirm: true }); }
                       };
                       _queueHoldMap.set('supgrpitem-'+q.id, requestAnimationFrame(tick));
                     };
-                    const cancelHold = () => { const raf = _queueHoldMap.get('supgrpitem-'+q.id); if (raf) { cancelAnimationFrame(raf); _queueHoldMap.delete('supgrpitem-'+q.id); } if ((q._holdPct || 0) > 0 && !q._deleteConfirm) upd({ _holdPct: 0 }); };
-                    const holdPct = q._holdPct || 0;
+                    const cancelHold = () => { const raf = _queueHoldMap.get('supgrpitem-'+q.id); if (raf) { cancelAnimationFrame(raf); _queueHoldMap.delete('supgrpitem-'+q.id); } const el = _queueBarRefMap.get('supgrpitem-'+q.id); if (el) el.style.height = '0%'; if (q._holding && !q._deleteConfirm) upd({ _holding: false }); };
                     return h('div', { key:q.id, style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',position:'relative'} },
                       q._deleteConfirm && h('div', { style:{position:'fixed',inset:0,zIndex:9}, onClick:e=>{ e.stopPropagation(); upd({ _deleteConfirm: false }); } }),
                       q._deleteConfirm && h('div', { className:'queue-delete-confirm', onPointerDown:e=>e.stopPropagation() },
@@ -8878,10 +9274,12 @@ function App() {
                       h('div', {
                         onClick:()=>{ if(q._deleteConfirm) return; if(q._qtyOpen){ upd({_qtyOpen:false}); return; } upd({_expanded:!rowExpanded}); },
                         onPointerDown:startHold, onPointerUp:cancelHold, onPointerCancel:cancelHold,
-                        style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',cursor:'pointer',userSelect:'none',position:'relative',touchAction:'pan-y',opacity:q._deleteConfirm?0.25:1,transition:'opacity 0.2s ease'}
+                        onMouseEnter: e => { if (!rowExpanded) e.currentTarget.style.background = 'var(--amber-light)'; },
+                        onMouseLeave: e => { if (!rowExpanded) e.currentTarget.style.background = 'var(--surface)'; },
+                        style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',cursor:'pointer',userSelect:'none',position:'relative',touchAction:'pan-y',opacity:q._deleteConfirm?0.25:1,background: rowExpanded ? 'var(--amber-light)' : 'var(--surface)', transition:'opacity 0.2s ease, background 0.1s'}
                       },
-                      holdPct > 0 && !q._deleteConfirm && h('div', { style:{position:'absolute',left:0,top:0,width:3,height:'100%',borderRadius:'3px 0 0 3px',background:'var(--border)',pointerEvents:'none',zIndex:5,overflow:'hidden'} },
-                        h('div', { style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:holdPct+'%',transition:'height 0.05s linear'} })
+                      q._holding && !q._deleteConfirm && h('div', { style:{position:'absolute',left:0,top:0,width:3,height:'100%',borderRadius:'3px 0 0 3px',background:'var(--border)',pointerEvents:'none',zIndex:5,overflow:'hidden'} },
+                        h('div', { ref: el => { if (el) _queueBarRefMap.set('supgrpitem-'+q.id, el); }, style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:'0%'} })
                       ),
                       h('div', { style:{position:'relative',width:44,height:44,flexShrink:0,borderRadius:7,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff'} },
                         q.image_url ? h('img',{src:q.image_url,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}}) : h('div',{style:{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}},'📦')
@@ -8896,25 +9294,25 @@ function App() {
                       h('div', { style:{display:'flex',alignItems:'center',gap:4,flexShrink:0} },
                         qtyOpen
                           ? h('div',{'data-qty-stepper':true,style:{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,width:80,height:28},onClick:e=>e.stopPropagation()},
-                              h('button',{onClick:e=>{ e.stopPropagation(); upd({stock_count:Math.max(0,q.stock_count-1)}); },className:'hdr-qty-btn-minus',style:{position:'absolute',right:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid #3a3a3e',background:'#1c1c1f',color:'#f4f4f5',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.4)'}},'−'),
+                              h('button',{onClick:e=>{ e.stopPropagation(); upd({stock_count:Math.max(0,q.stock_count-1)}); },className:'hdr-qty-btn-minus',style:{position:'absolute',right:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow: darkMode?'0 1px 4px rgba(0,0,0,0.4)':'0 1px 3px rgba(0,0,0,0.15)'}},'−'),
                               h('span',{style:{position:'relative',zIndex:1,fontSize:12,fontWeight:700,color:'var(--text)',minWidth:16,textAlign:'center',userSelect:'none'}},q.stock_count),
-                              h('button',{onClick:e=>{ e.stopPropagation(); upd({stock_count:q.stock_count+1}); },className:'hdr-qty-btn-plus',style:{position:'absolute',left:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid #3a3a3e',background:'#1c1c1f',color:'#f4f4f5',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.4)'}},'+'  )
+                              h('button',{onClick:e=>{ e.stopPropagation(); upd({stock_count:q.stock_count+1}); },className:'hdr-qty-btn-plus',style:{position:'absolute',left:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow: darkMode?'0 1px 4px rgba(0,0,0,0.4)':'0 1px 3px rgba(0,0,0,0.15)'}},'+'  )
                             )
-                          : h('div',{'data-qty-stepper':true,style:{display:'flex',alignItems:'center',flexShrink:0,background:'#1c1c1f',borderRadius:10,overflow:'hidden',border:'1px solid #3a3a3e',cursor:'pointer'},onClick:e=>{ e.stopPropagation(); setQueue(prev => prev.map((item,j) => j===realIndex ? {...item,_qtyOpen:true} : item._qtyOpen ? {...item,_qtyOpen:false} : item)); }},
-                              h('span',{style:{fontSize:13,fontWeight:700,color:'#f4f4f5',padding:'3px 18px',letterSpacing:'0.01em',userSelect:'none'}},'×'+q.stock_count)
+                          : h('div',{'data-qty-stepper':true,style:{display:'flex',alignItems:'center',flexShrink:0,background:'var(--bg)',borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',cursor:'pointer',transition:'border-color 0.15s'},onMouseEnter:e=>e.currentTarget.style.borderColor='var(--muted)',onMouseLeave:e=>e.currentTarget.style.borderColor='var(--border)',onClick:e=>{ e.stopPropagation(); setQueue(prev => prev.map((item,j) => j===realIndex ? {...item,_qtyOpen:true} : item._qtyOpen ? {...item,_qtyOpen:false} : item)); }},
+                              h('span',{style:{fontSize:13,fontWeight:700,color:'var(--text)',padding:'3px 18px',letterSpacing:'0.01em',userSelect:'none'}},'×'+q.stock_count)
                             )
                       )
                       ),
                       rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',opacity:q._deleteConfirm?0.25:1,transition:'opacity 0.2s ease',pointerEvents:q._deleteConfirm?'none':undefined} },
                         h('div', { style:{display:'grid',gridTemplateColumns:'110px minmax(0,1fr)',gap:'10px 14px',marginBottom:12} },
                           h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
-                            h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, title:'Click to replace image', onClick:()=>document.getElementById('sg-img-'+q.id)?.click() },
+                            h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image', onClick:()=>document.getElementById('sg-img-'+q.id)?.click() },
                               q.image_url ? h('img',{src:q.image_url,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}}) : h('div',{style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,fontSize:24,color:'var(--muted)'}},'📦',h('span',{style:{fontSize:9,textTransform:'uppercase',letterSpacing:'0.05em'}},'tap to add')),
                               h('div',{style:{position:'absolute',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',opacity:0,transition:'opacity 0.15s'},onMouseEnter:e=>e.currentTarget.style.opacity=1,onMouseLeave:e=>e.currentTarget.style.opacity=0},h('span',{style:{fontSize:18}},'🖼️')),
                               h('input',{id:'sg-img-'+q.id,type:'file',accept:'image/*',style:{display:'none'},onChange:handleQueueImgReplace})
                             ),
                             h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3,width:'100%'} },
-                              h('div', { style:{width:90,height:90,borderRadius:8,border:'1px dashed var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',overflow:'hidden',position:'relative'}, title:q.qr_link_url?'View QR image':'Upload QR Link image', onClick:q.qr_link_url?(e=>{ e.stopPropagation(); setQrLightbox({url:q.qr_link_url,id:q.id}); }):(()=>document.getElementById('sg-qr-'+q.id)?.click()) },
+                              h('div', { style:{width:90,height:90,borderRadius:8,border:'1px dashed var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',overflow:'hidden',position:'relative'}, className:'img-box-animated', title:q.qr_link_url?'View QR image':'Upload QR Link image', onClick:q.qr_link_url?(e=>{ e.stopPropagation(); setQrLightbox({url:q.qr_link_url,id:q.id}); }):(()=>document.getElementById('sg-qr-'+q.id)?.click()) },
                                 q.qr_link_url
                                   ? h('img',{src:q.qr_link_url,style:{width:'100%',height:'100%',objectFit:'contain',display:'block',cursor:'zoom-in'}})
                                   : h('div',{style:{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,pointerEvents:'none'}},
@@ -8934,7 +9332,7 @@ function App() {
                                   h('button',{onClick:()=>upd({stock_count:q.stock_count+1}),style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}},'+')
                                 )
                               ),
-                              h('div', null, lbl('ea. Price'), h('input',{className:'field-input',type:'number',min:0,step:'0.01',placeholder:'(USD)',style:{padding:'5px 8px',fontSize:13},value:q.estimated_price||'',onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0})}))
+                              h('div', null, lbl('ea. Price'), h('input',{className:'field-input field-input-animated',type:'number',min:0,step:'0.01',placeholder:'(USD)',style:{padding:'5px 8px',fontSize:13},value:q.estimated_price||'',onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0})}))
                             ),
                             h('div', { style:{minWidth:0} },
                               lbl('Supplier'),
@@ -8957,17 +9355,17 @@ function App() {
                                 );
                               })()
                             ),
-                            h('div', null, lbl('Each Buying Price'), h('div', { style:{position:'relative'} }, !!(q.product_price && q.product_price !== '') && h('span', { style:{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '¥'), h('input',{className:'field-input',type:'number',min:0,step:'0.01',placeholder:'original ¥',style:{padding:'5px 8px',fontSize:13,...(!!(q.product_price && q.product_price !== '') ? {paddingLeft:20} : {})},value:q.product_price||'',onChange:e=>upd({product_price:e.target.value})}))),
+                            h('div', null, lbl('Each Buying Price'), h('div', { style:{position:'relative'} }, !!(q.product_price && q.product_price !== '') && h('span', { style:{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '¥'), h('input',{className:'field-input field-input-animated',type:'number',min:0,step:'0.01',placeholder:'original ¥',style:{padding:'5px 8px',fontSize:13,...(!!(q.product_price && q.product_price !== '') ? {paddingLeft:20} : {})},value:q.product_price||'',onChange:e=>upd({product_price:e.target.value})}))),
                             h('div', null, lbl('Combine Buying Price'), h(CombinePriceSplit, { valueCny:q.combine_price_cny, valueUsd:q.combine_price, onChangeCny:v=>upd({combine_price_cny:v}), onChangeUsd:v=>upd({combine_price:v}) }))
                           )
                         ),
                         h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10} },
-                          h('div', null, lbl('Type of product'), h('select',{className:'field-input',style:{padding:'5px 8px',fontSize:13},value:q.product_type||'',onChange:e=>upd({product_type:e.target.value})},h('option',{value:''},''),productTypes.map(t=>h('option',{key:t,value:t},t)))),
-                          h('div', null, lbl('Category'), h('select',{className:'field-input',style:{padding:'5px 8px',fontSize:13},value:q.category||'',onChange:e=>upd({category:e.target.value})},h('option',{value:''},''),categories.map(c=>h('option',{key:c,value:c},c))))
+                          h('div', null, lbl('Type of product'), h('select',{className:'field-input field-input-animated',style:{padding:'5px 8px',fontSize:13},value:q.product_type||'',onChange:e=>upd({product_type:e.target.value})},h('option',{value:''},''),productTypes.map(t=>h('option',{key:t,value:t},t)))),
+                          h('div', null, lbl('Category'), h('select',{className:'field-input field-input-animated',style:{padding:'5px 8px',fontSize:13},value:q.category||'',onChange:e=>upd({category:e.target.value})},h('option',{value:''},''),categories.map(c=>h('option',{key:c,value:c},c))))
                         ),
-                        h('div', { style:{marginBottom:10} }, lbl('Product name'), h('input',{className:'field-input',style:{padding:'5px 8px',fontSize:13},value:q.product_name,placeholder:'Unnamed product',onChange:e=>upd({product_name:e.target.value})})),
-                        h('div', { style:{marginBottom:10} }, lbl('Tags'), h('input',{className:'field-input',style:{padding:'5px 8px',fontSize:13},placeholder:'e.g. wireless, portable',value:(q.tags||[]).join(', '),onChange:e=>upd({tags:e.target.value.split(',').map(t=>t.trim()).filter(Boolean)})})),
-                        h('div', null, lbl('Description'), h('textarea',{className:'field-input',style:{padding:'5px 8px',fontSize:13,resize:'vertical',minHeight:64,lineHeight:1.5},placeholder:'Product description…',value:q.description||'',onChange:e=>upd({description:e.target.value})}))
+                        h('div', { style:{marginBottom:10} }, lbl('Product name'), h('input',{className:'field-input field-input-animated',style:{padding:'5px 8px',fontSize:13},value:q.product_name,placeholder:'Unnamed product',onChange:e=>upd({product_name:e.target.value})})),
+                        h('div', { style:{marginBottom:10} }, lbl('Tags'), h('input',{className:'field-input field-input-animated',style:{padding:'5px 8px',fontSize:13},placeholder:'e.g. wireless, portable',value:(q.tags||[]).join(', '),onChange:e=>upd({tags:e.target.value.split(',').map(t=>t.trim()).filter(Boolean)})})),
+                        h('div', null, lbl('Description'), h('textarea',{className:'field-input field-input-animated',style:{padding:'5px 8px',fontSize:13,resize:'vertical',minHeight:64,lineHeight:1.5},placeholder:'Product description…',value:q.description||'',onChange:e=>upd({description:e.target.value})}))
                       )
                     );
                   })
@@ -9000,15 +9398,17 @@ function App() {
             // capture pointer so pointerleave never fires during re-renders
             try { e.target.setPointerCapture(e.pointerId); } catch(_) {}
             const start = Date.now();
+            upd({ _holding: true });
             const tick = () => {
               const elapsed = Date.now() - start;
-              const pct = Math.min(100, (elapsed / 500) * 100);
-              upd({ _holdPct: pct });
+              const pct = Math.min(100, (elapsed / 1000) * 100);
+              const el = _queueBarRefMap.get(q.id);
+              if (el) el.style.height = pct+'%';
               if (pct < 100) {
                 _queueHoldMap.set(q.id, requestAnimationFrame(tick));
               } else {
                 _queueHoldMap.delete(q.id);
-                upd({ _holdPct: 0, _deleteConfirm: true });
+                upd({ _holding: false, _deleteConfirm: true });
               }
             };
             _queueHoldMap.set(q.id, requestAnimationFrame(tick));
@@ -9016,9 +9416,10 @@ function App() {
           const cancelHold = () => {
             const raf = _queueHoldMap.get(q.id);
             if (raf) { cancelAnimationFrame(raf); _queueHoldMap.delete(q.id); }
-            if ((q._holdPct || 0) > 0 && !q._deleteConfirm) upd({ _holdPct: 0 });
+            const el = _queueBarRefMap.get(q.id);
+            if (el) el.style.height = '0%';
+            if (q._holding && !q._deleteConfirm) upd({ _holding: false });
           };
-          const holdPct = q._holdPct || 0;
 
           return h('div', { key:q.id, style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,overflow:'hidden',position:'relative'} },
 
@@ -9047,14 +9448,17 @@ function App() {
               onPointerDown: startHold,
               onPointerUp: cancelHold,
               onPointerCancel: cancelHold,
-              style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',cursor:'pointer',userSelect:'none',position:'relative',touchAction:'pan-y',opacity:q._deleteConfirm?0.25:1,transition:'opacity 0.2s ease'}
+              onMouseEnter: e => { if (!expanded) e.currentTarget.style.background = 'var(--amber-light)'; },
+              onMouseLeave: e => { if (!expanded) e.currentTarget.style.background = 'var(--surface)'; },
+              style:{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',cursor:'pointer',userSelect:'none',position:'relative',touchAction:'pan-y',opacity:q._deleteConfirm?0.25:1,background: expanded ? 'var(--amber-light)' : 'var(--surface)', transition:'opacity 0.2s ease, background 0.1s'}
             },
             /* hold progress — vertical line at left edge */
-            holdPct > 0 && !q._deleteConfirm && h('div', {
+            q._holding && !q._deleteConfirm && h('div', {
               style:{position:'absolute',left:0,top:0,width:3,height:'100%',borderRadius:'3px 0 0 3px',background:'var(--border)',pointerEvents:'none',zIndex:5,overflow:'hidden'}
             },
               h('div', {
-                style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height: holdPct+'%',transition:'height 0.05s linear'}
+                ref: el => { if (el) _queueBarRefMap.set(q.id, el); },
+                style:{position:'absolute',left:0,top:0,width:'100%',background:'#b91c1c',borderRadius:'3px 0 0 3px',height:'0%'}
               })
             ),
               /* ── PRODUCT QR view: large QR image + supplier logo/name ── */
@@ -9142,12 +9546,12 @@ function App() {
                   h('div', { style:{display:'flex',alignItems:'center',gap:4} },
                     qtyOpen
                       ? h('div', { 'data-qty-stepper':true, style:{position:'relative',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,width:80,height:28}, onClick:e=>e.stopPropagation() },
-                          h('button', { onClick:e=>{ e.stopPropagation(); upd({stock_count:Math.max(0,q.stock_count-1)}); }, className:'hdr-qty-btn-minus', style:{position:'absolute',right:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid #3a3a3e',background:'#1c1c1f',color:'#f4f4f5',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.4)'} }, '−'),
+                          h('button', { onClick:e=>{ e.stopPropagation(); upd({stock_count:Math.max(0,q.stock_count-1)}); }, className:'hdr-qty-btn-minus', style:{position:'absolute',right:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow: darkMode?'0 1px 4px rgba(0,0,0,0.4)':'0 1px 3px rgba(0,0,0,0.15)'} }, '−'),
                           h('span', { style:{position:'relative',zIndex:1,fontSize:12,fontWeight:700,color:'var(--text)',minWidth:16,textAlign:'center',userSelect:'none'} }, q.stock_count),
-                          h('button', { onClick:e=>{ e.stopPropagation(); upd({stock_count:q.stock_count+1}); }, className:'hdr-qty-btn-plus', style:{position:'absolute',left:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid #3a3a3e',background:'#1c1c1f',color:'#f4f4f5',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 4px rgba(0,0,0,0.4)'} }, '+')
+                          h('button', { onClick:e=>{ e.stopPropagation(); upd({stock_count:q.stock_count+1}); }, className:'hdr-qty-btn-plus', style:{position:'absolute',left:'calc(50% + 13px)',width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:13,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',boxShadow: darkMode?'0 1px 4px rgba(0,0,0,0.4)':'0 1px 3px rgba(0,0,0,0.15)'} }, '+')
                         )
-                      : h('div', { 'data-qty-stepper':true, style:{display:'flex',alignItems:'center',flexShrink:0,background:'#1c1c1f',borderRadius:10,overflow:'hidden',border:'1px solid #3a3a3e',cursor:'pointer'}, onClick:e=>{ e.stopPropagation(); setQueue(prev => prev.map((item,j) => j===realIndex ? {...item,_qtyOpen:true} : item._qtyOpen ? {...item,_qtyOpen:false} : item)); } },
-                          h('span', { style:{fontSize:13,fontWeight:700,color:'#f4f4f5',padding:'3px 18px',letterSpacing:'0.01em',userSelect:'none'} }, '×'+q.stock_count)
+                      : h('div', { 'data-qty-stepper':true, style:{display:'flex',alignItems:'center',flexShrink:0,background:'var(--bg)',borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',cursor:'pointer',transition:'border-color 0.15s'}, onMouseEnter:e=>e.currentTarget.style.borderColor='var(--muted)', onMouseLeave:e=>e.currentTarget.style.borderColor='var(--border)', onClick:e=>{ e.stopPropagation(); setQueue(prev => prev.map((item,j) => j===realIndex ? {...item,_qtyOpen:true} : item._qtyOpen ? {...item,_qtyOpen:false} : item)); } },
+                          h('span', { style:{fontSize:13,fontWeight:700,color:'var(--text)',padding:'3px 18px',letterSpacing:'0.01em',userSelect:'none'} }, '×'+q.stock_count)
                         ),
                     h('span', { style:{fontSize:14,color:'var(--muted)',transition:'transform 0.2s',transform:expanded?'rotate(180deg)':'rotate(0deg)'} }, '▾')
                   )
@@ -9162,7 +9566,7 @@ function App() {
                 /* LEFT COLUMN: product image, then QR link box below */
                 h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
                   /* product image */
-                  h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, title:'Click to replace image',
+                  h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image',
                       onClick:()=>document.getElementById('q-img-'+q.id)?.click() },
                     q.image_url
                       ? h('img', { src:q.image_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block'} })
@@ -9176,6 +9580,7 @@ function App() {
                   h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3,width:'100%'} },
                     h('div', {
                       style:{width:90,height:90,borderRadius:8,border:'1px dashed var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',overflow:'hidden',position:'relative'},
+                      className:'img-box-animated',
                       title: q.qr_link_url ? 'View QR image' : 'Upload QR Link image',
                       onClick: q.qr_link_url ? (e=>{ e.stopPropagation(); setQrLightbox({url:q.qr_link_url,id:q.id}); }) : (()=>document.getElementById('q-qr-'+q.id)?.click())
                     },
@@ -9230,7 +9635,7 @@ function App() {
                     ),
                     h('div', null,
                       lbl('ea. Price'),
-                      h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'(USD)', style:{padding:'5px 8px',fontSize:13}, value:q.estimated_price||'', onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0}) })
+                      h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'(USD)', style:{padding:'5px 8px',fontSize:13}, value:q.estimated_price||'', onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0}) })
                     )
                   ),
                   /* supplier */
@@ -9276,7 +9681,7 @@ function App() {
                       lbl('Each Buying Price'),
                       h('div', { style:{position:'relative'} },
                         !!(q.product_price && q.product_price !== '') && h('span', { style:{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '¥'),
-                        h('input', { className:'field-input', type:'number', min:0, step:'0.01', placeholder:'original ¥', style:{padding:'5px 8px',fontSize:13,...(!!(q.product_price && q.product_price !== '') ? {paddingLeft:20} : {})}, value:q.product_price||'', onChange:e=>upd({product_price:e.target.value}) })
+                        h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'original ¥', style:{padding:'5px 8px',fontSize:13,...(!!(q.product_price && q.product_price !== '') ? {paddingLeft:20} : {})}, value:q.product_price||'', onChange:e=>upd({product_price:e.target.value}) })
                       )
                     ),
                     h('div', { style:{marginTop:8} },
@@ -9290,14 +9695,14 @@ function App() {
               h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10} },
                 h('div', null,
                   lbl('Type of product'),
-                  h('select', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, value:q.product_type||'', onChange:e=>upd({product_type:e.target.value}) },
+                  h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:q.product_type||'', onChange:e=>upd({product_type:e.target.value}) },
                     h('option', { value:'' }, ''),
                     productTypes.map(t=>h('option',{key:t,value:t},t))
                   )
                 ),
                 h('div', null,
                   lbl('Category'),
-                  h('select', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, value:q.category||'', onChange:e=>upd({category:e.target.value}) },
+                  h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:q.category||'', onChange:e=>upd({category:e.target.value}) },
                     h('option', { value:'' }, ''),
                     categories.map(c=>h('option',{key:c,value:c},c))
                   )
@@ -9306,18 +9711,18 @@ function App() {
               /* Row 5: product name full width */
               h('div', { style:{marginBottom:10} },
                 lbl('Product name'),
-                h('input', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, value:q.product_name, placeholder:'Unnamed product', onChange:e=>upd({product_name:e.target.value}) })
+                h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:q.product_name, placeholder:'Unnamed product', onChange:e=>upd({product_name:e.target.value}) })
               ),
               /* Row 6: tags full width */
               h('div', { style:{marginBottom:10} },
                 lbl('Tags'),
-                h('input', { className:'field-input', style:{padding:'5px 8px',fontSize:13}, placeholder:'e.g. wireless, portable', value:(q.tags||[]).join(', '),
+                h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, placeholder:'e.g. wireless, portable', value:(q.tags||[]).join(', '),
                   onChange: e => upd({ tags: e.target.value.split(',').map(t=>t.trim()).filter(Boolean) }) })
               ),
               /* Row 7: description full width */
               h('div', null,
                 lbl('Description'),
-                h('textarea', { className:'field-input', style:{padding:'5px 8px',fontSize:13,resize:'vertical',minHeight:64,lineHeight:1.5}, placeholder:'Product description…', value:q.description||'',
+                h('textarea', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13,resize:'vertical',minHeight:64,lineHeight:1.5}, placeholder:'Product description…', value:q.description||'',
                   onChange: e => upd({ description: e.target.value }) })
               )
             )
