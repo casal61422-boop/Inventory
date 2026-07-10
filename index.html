@@ -24,7 +24,8 @@ html.dark {
   --text: #f4f4f5; --muted: #a1a1aa; --subtle: #71717a;
   --img-bg: #1C1C1F;
 }
-body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); min-height: 100vh; overscroll-behavior-x: none; overflow-x: hidden; }
+html { overscroll-behavior-x: none; }
 button { font-family: var(--font); cursor: pointer; }
 input, select, textarea { font-family: var(--font); }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -42,6 +43,10 @@ input, select, textarea { font-family: var(--font); }
 .queue-hold-ring { position:absolute; inset:0; pointer-events:none; border-radius:7px; overflow:hidden; }
 .queue-delete-confirm { position:absolute; inset:0; border-radius:10px; background:rgba(120,40,40,0.82); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; gap:10px; z-index:10; animation:fadeIn 0.15s ease; }
 @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+@keyframes tabPushInFromRight { from{ transform:translateX(100%); } to{ transform:translateX(0); } }
+@keyframes tabPushInFromLeft { from{ transform:translateX(-100%); } to{ transform:translateX(0); } }
+@keyframes tabPushOutToLeft { from{ transform:translateX(0); } to{ transform:translateX(-100%); } }
+@keyframes tabPushOutToRight { from{ transform:translateX(0); } to{ transform:translateX(100%); } }
 @keyframes brandingPop {
   0%   { box-shadow: 0 0 0 0 rgba(186,117,23,0.55), 0 0 0 0 rgba(186,117,23,0.25); border-color: var(--amber); }
   30%  { box-shadow: 0 0 0 6px rgba(186,117,23,0.3), 0 0 0 14px rgba(186,117,23,0.1); border-color: var(--amber); }
@@ -1341,11 +1346,11 @@ function QueueViewToggle({ mode, setMode }) {
   return h('button', {
     onClick: () => setMode(next.id),
     title: `Switch to ${next.label}`,
-    style:{background:'var(--amber-light)',border:'1px solid var(--amber)',borderRadius:6,padding:'5px 8px',fontSize:13,color:'var(--amber)',display:'flex',alignItems:'center',gap:4,transition:'all 0.15s',cursor:'pointer',fontFamily:'var(--font)'}
+    style:{background:'none',border:'none',padding:'2px 0',fontSize:13,color:'var(--amber)',display:'flex',alignItems:'center',gap:4,cursor:'pointer',fontFamily:'var(--font)'}
   },
     h('span', { style:{fontSize:14,lineHeight:1} }, current.icon),
     h('span', { style:{display:'grid'} },
-      options.map(o => h('span', { key:o.id, style:{gridArea:'1 / 1',fontSize:11,visibility:o.id===current.id?'visible':'hidden'} }, o.label))
+      options.map(o => h('span', { key:o.id, style:{gridArea:'1 / 1',fontSize:11,visibility:o.id===current.id?'visible':'hidden',justifySelf:'start'} }, o.label))
     )
   );
 }
@@ -3858,7 +3863,7 @@ function SupplierSwipeRow({ s, i, suppliers, setSuppliers, applications, setCatM
   const HOLD_MS = 1000;
   const holdActive = useRef(false);
   const holdTriggered = useRef(false);
-  const holdJustFired = useRef(false);
+  const holdJustFiredAt = useRef(0); // timestamp of hold completion — briefly swallows the release click only
   const holdStart = useRef(null);
   const touchStartX = useRef(0);
   const touchStartY = useRef(0);
@@ -3893,7 +3898,7 @@ function SupplierSwipeRow({ s, i, suppliers, setSuppliers, applications, setCatM
         setHoldProgress(0);
         holdActive.current = false;
         holdTriggered.current = true;
-        holdJustFired.current = true;
+        holdJustFiredAt.current = performance.now();
         touchMoved.current = false;
         setRevealed(true);
         setOffset(-SNAP);
@@ -3984,7 +3989,7 @@ function SupplierSwipeRow({ s, i, suppliers, setSuppliers, applications, setCatM
         onTouchEnd: e => { cancelHold(); },
         onTouchCancel: () => cancelHold(),
         onClick: e => {
-          if (holdJustFired.current) { holdJustFired.current = false; holdTriggered.current = false; return; }
+          if (performance.now() - holdJustFiredAt.current < 400) { holdTriggered.current = false; return; } // ignore just the click that ends the hold gesture itself
           if (holdTriggered.current) { holdTriggered.current = false; return; }
           if (touchMoved.current) return;
           if (revealed) { reset(); return; }
@@ -4633,10 +4638,33 @@ function App() {
   const [stockEditDraft, setStockEditDraft] = useState(null);
   const [qrCropStockTarget, setQrCropStockTarget] = useState(false);
   const [ocSwipe, setOcSwipe] = useState({ id:null, offset:0, ready:false });
+  const [ocHold, setOcHold] = useState({ id:null, pct:0 });
   const ocHoldRef = useRef(null);
-  const ocStartX  = useRef(0);
-  const ocReady   = useRef(false);
-  const ocDragging = useRef(false);
+  const ocPressStart = useRef({ x:0, y:0 });
+  const OC_HOLD_MOVE_TOLERANCE = 8; // px — movement beyond this cancels the hold (it's a swipe instead)
+  const OC_HOLD_MS = 750;
+  const ocClearHold = () => {
+    if (ocHoldRef.current) {
+      if (ocHoldRef.current.rafId) cancelAnimationFrame(ocHoldRef.current.rafId);
+      if (ocHoldRef.current.timeoutId) clearTimeout(ocHoldRef.current.timeoutId);
+    }
+    ocHoldRef.current = null;
+    setOcHold({ id:null, pct:0 });
+  };
+  const ocStartHold = (id, onComplete) => {
+    ocClearHold();
+    const startTime = Date.now();
+    const ref = { rafId:null, timeoutId:null };
+    const tick = () => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(100, (elapsed / OC_HOLD_MS) * 100);
+      setOcHold({ id, pct });
+      if (elapsed < OC_HOLD_MS) ref.rafId = requestAnimationFrame(tick);
+    };
+    ref.rafId = requestAnimationFrame(tick);
+    ref.timeoutId = setTimeout(() => { onComplete(); ocClearHold(); }, OC_HOLD_MS);
+    ocHoldRef.current = ref;
+  };
   const [orderingIds, setOrderingIds] = useState(() => { try { return JSON.parse(localStorage.getItem('orderingIds')||'[]'); } catch(e){ return []; } });
   const [prevOrderingIds, setPrevOrderingIds] = useState(null);
   const [purchaseOrders, setPurchaseOrders] = useState(() => { try { return JSON.parse(localStorage.getItem('purchaseOrders')||'[]'); } catch(e){ return []; } });
@@ -4655,6 +4683,61 @@ function App() {
     setOrderingSubTabRaw(v);
     localStorage.setItem('orderingSubTab', v);
   };
+  // ── Reorder page: swipe/scroll-to-switch between Low / Pending / Purchased ──
+  const REORDER_SUBTABS = ['lowstock', 'pending', 'purchase'];
+  const getReorderSubTab = () => stockTab === 'lowstock' ? 'lowstock' : stockTab === 'ordering' ? orderingSubTab : null;
+  const setReorderSubTab = name => {
+    if (name === 'lowstock') setStockTab('lowstock');
+    else { setStockTab('ordering'); setOrderingSubTab(name); }
+  };
+  const [reorderSlideDir, setReorderSlideDir] = useState(1);
+  const goReorderSubTab = dir => { // dir: 1 = next (left swipe), -1 = prev (right swipe)
+    const cur = getReorderSubTab();
+    if (cur === null) return; // on a non-swipeable tab (delivery note / packaging / in store)
+    const idx = REORDER_SUBTABS.indexOf(cur);
+    const nextIdx = idx + dir;
+    if (nextIdx < 0 || nextIdx >= REORDER_SUBTABS.length) return; // at the end, don't wrap
+    setReorderSlideDir(dir);
+    setReorderSubTab(REORDER_SUBTABS[nextIdx]);
+  };
+  // Jump directly to a named sub-tab (e.g. from clicking its button) with the correct slide direction,
+  // instead of leaving reorderSlideDir stuck at whatever a past swipe last set it to.
+  const goReorderSubTabByName = name => {
+    const cur = getReorderSubTab();
+    const curIdx = REORDER_SUBTABS.indexOf(cur);
+    const nextIdx = REORDER_SUBTABS.indexOf(name);
+    if (curIdx !== -1 && nextIdx !== -1 && curIdx !== nextIdx) setReorderSlideDir(nextIdx > curIdx ? 1 : -1);
+    setReorderSubTab(name);
+  };
+  const reorderSwipeRef = useRef({ active:false, startX:0, startY:0, dx:0, dy:0 });
+  const REORDER_SWIPE_THRESHOLD = 60;
+  const reorderSwipeStart = (x, y) => { reorderSwipeRef.current = { active:true, startX:x, startY:y, dx:0, dy:0 }; };
+  const reorderSwipeMove = (x, y) => { const s = reorderSwipeRef.current; if (!s.active) return; s.dx = x - s.startX; s.dy = y - s.startY; };
+  const reorderSwipeEnd = () => {
+    const s = reorderSwipeRef.current;
+    if (!s.active) return;
+    s.active = false;
+    if (Math.abs(s.dx) > REORDER_SWIPE_THRESHOLD && Math.abs(s.dx) > Math.abs(s.dy)) {
+      goReorderSubTab(s.dx < 0 ? 1 : -1);
+    }
+  };
+  const reorderWheelCooldownRef = useRef(0);
+  const REORDER_WHEEL_THRESHOLD = 40;
+  const reorderSwipeHandlers = {
+    onTouchStart: e => { const t = e.touches[0]; reorderSwipeStart(t.clientX, t.clientY); },
+    onTouchMove: e => { const t = e.touches[0]; reorderSwipeMove(t.clientX, t.clientY); },
+    onTouchEnd: () => reorderSwipeEnd(),
+    onMouseDown: e => { reorderSwipeStart(e.clientX, e.clientY); const move = ev => reorderSwipeMove(ev.clientX, ev.clientY); const up = () => { reorderSwipeEnd(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); },
+    onWheel: e => {
+      if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      if (Math.abs(e.deltaX) < REORDER_WHEEL_THRESHOLD) return;
+      const now = Date.now();
+      if (now - reorderWheelCooldownRef.current < 500) return;
+      reorderWheelCooldownRef.current = now;
+      goReorderSubTab(e.deltaX > 0 ? 1 : -1);
+    },
+  };
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
   const [undoHighlightIds, setUndoHighlightIds] = useState([]);
   useEffect(() => {
@@ -4667,7 +4750,8 @@ function App() {
     if (!ocSwipe.id || ocSwipe.offset === 0) return;
     const handler = e => {
       if (!e.target.closest) return;
-      if (!e.target.closest('[data-oc-row]')) setOcSwipe({ id:null, offset:0, ready:false });
+      if (e.target.closest('[data-oc-action]')) return; // let the Remove/Undo button's own click handle it
+      setOcSwipe({ id:null, offset:0, ready:false });
     };
     document.addEventListener('mousedown', handler);
     document.addEventListener('touchstart', handler);
@@ -4676,6 +4760,10 @@ function App() {
   const [stockSearch, setStockSearch] = useState('');
   const [lowStockN,  setLowStockN]   = useState(() => { const v = localStorage.getItem('lowStockN');  return v !== null ? parseInt(v) : 3; });
   const [lowStockOp, setLowStockOp]  = useState(() => localStorage.getItem('lowStockOp') || 'lte'); // 'lt' | 'lte'
+  const [lowViewMode, setLowViewModeRaw] = useState(() => localStorage.getItem('lowViewMode') || 'product'); // 'product' | 'link' | 'supplier'
+  const setLowViewMode = m => { setLowViewModeRaw(m); localStorage.setItem('lowViewMode', m); };
+  const [lowQrGroupExpanded,  setLowQrGroupExpanded]  = useState({});
+  const [lowSupGroupExpanded, setLowSupGroupExpanded] = useState({});
   const [brandingFlash, setBrandingFlash] = useState(false);
   const [apiKeyFlash, setApiKeyFlash] = useState(false);
   const [products, setProducts]     = useState([]);
@@ -4896,7 +4984,51 @@ function App() {
   const [showSupplierForm, setShowSupplierForm] = useState(true);
   const [supplierTab, setSupplierTab] = useState('supplier'); // 'product' | 'supplier'
   const [uploadTab, setUploadTabRaw] = useState(() => { const v = localStorage.getItem('lastUploadTab'); return (v === 'product' || v === 'supplier') ? v : 'product'; });
-  const setUploadTab = v => { setUploadTabRaw(v); localStorage.setItem('lastUploadTab', v); };
+  const [tabSlideDir, setTabSlideDir] = useState(1); // 1 = incoming from right, -1 = incoming from left
+  const [prevUploadTab, setPrevUploadTab] = useState(null); // set briefly during transition so the old tab can push out
+  const tabTransitionTimerRef = useRef(null);
+  const setUploadTab = v => {
+    setUploadTabRaw(prev => {
+      if (v === prev) return prev;
+      setTabSlideDir(v === 'supplier' ? 1 : -1);
+      setPrevUploadTab(prev);
+      localStorage.setItem('lastUploadTab', v);
+      if (tabTransitionTimerRef.current) clearTimeout(tabTransitionTimerRef.current);
+      tabTransitionTimerRef.current = setTimeout(() => setPrevUploadTab(null), 300);
+      return v;
+    });
+  };
+  // ── swipe-to-switch-tab gesture (Add New page) ──
+  const tabSwipeRef = useRef({ active:false, startX:0, startY:0, dx:0, dy:0, pointerId:null });
+  const TAB_SWIPE_THRESHOLD = 60; // px horizontal movement required to trigger a tab switch
+  const tabSwipeStart = (x, y) => { tabSwipeRef.current = { active:true, startX:x, startY:y, dx:0, dy:0 }; };
+  const tabSwipeMove = (x, y) => { const s = tabSwipeRef.current; if (!s.active) return; s.dx = x - s.startX; s.dy = y - s.startY; };
+  const tabSwipeEnd = () => {
+    const s = tabSwipeRef.current;
+    if (!s.active) return;
+    s.active = false;
+    if (Math.abs(s.dx) > TAB_SWIPE_THRESHOLD && Math.abs(s.dx) > Math.abs(s.dy)) {
+      if (s.dx < 0 && uploadTab === 'product') setUploadTab('supplier');
+      else if (s.dx > 0 && uploadTab === 'supplier') setUploadTab('product');
+    }
+  };
+  const tabWheelCooldownRef = useRef(0);
+  const TAB_WHEEL_THRESHOLD = 40; // horizontal wheel/trackpad delta required to trigger a tab switch
+  const tabSwipeHandlers = {
+    onTouchStart: e => { const t = e.touches[0]; tabSwipeStart(t.clientX, t.clientY); },
+    onTouchMove: e => { const t = e.touches[0]; tabSwipeMove(t.clientX, t.clientY); },
+    onTouchEnd: () => tabSwipeEnd(),
+    onMouseDown: e => { tabSwipeStart(e.clientX, e.clientY); const move = ev => tabSwipeMove(ev.clientX, ev.clientY); const up = () => { tabSwipeEnd(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); },
+    onWheel: e => {
+      if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return; // vertical scroll, let it pass through normally
+      e.preventDefault(); // stop the page itself from shifting sideways; we handle horizontal ourselves
+      if (Math.abs(e.deltaX) < TAB_WHEEL_THRESHOLD) return; // too small a nudge
+      const now = Date.now();
+      if (now - tabWheelCooldownRef.current < 500) return; // debounce: one switch per gesture
+      if (e.deltaX > 0 && uploadTab === 'product') { tabWheelCooldownRef.current = now; setUploadTab('supplier'); }
+      else if (e.deltaX < 0 && uploadTab === 'supplier') { tabWheelCooldownRef.current = now; setUploadTab('product'); }
+    },
+  };
   const saveInvoiceTemplate = async (dataUrl) => {
     setInvoiceTemplate(dataUrl);
     try { await window.storage?.set('inv-invoice-template', dataUrl || ''); } catch(e) {}
@@ -6004,8 +6136,9 @@ function App() {
       { key:'instore',       icon:'\ud83c\udfe5', label:'In Store',       value: products.filter(p => lowStockOp==='lte' ? p.stock_count>lowStockN : p.stock_count>=lowStockN).length, red: false },
     ];
 
-    const StockRow = ({ p }) => {
+    const StockRow = ({ p, flush }) => {
       const rowExpanded = expandedStockId === p.id;
+      const rowBaseBg = 'var(--surface)';
       const draft = rowExpanded ? (stockEditDraft || p) : p;
       const upd = (patch) => setStockEditDraft(d => d ? {...d, ...patch} : {...p, ...patch});
       const toggleExpand = () => {
@@ -6036,11 +6169,11 @@ function App() {
           style:{
             display:'grid', gridTemplateColumns:'36px 1fr auto', alignItems:'center', gap:10,
             padding:'7px 14px', transition:'background 0.1s', cursor:'pointer',
-            background: rowExpanded ? 'var(--amber-light)' : 'var(--surface)',
+            background: rowExpanded ? 'var(--amber-light)' : rowBaseBg,
           },
           onClick: toggleExpand,
           onMouseEnter:e=>{ if(!rowExpanded) e.currentTarget.style.background='var(--amber-light)'; },
-          onMouseLeave:e=>{ if(!rowExpanded) e.currentTarget.style.background='var(--surface)'; },
+          onMouseLeave:e=>{ if(!rowExpanded) e.currentTarget.style.background=rowBaseBg; },
         },
           h('div', {
             className:'stock-product-thumb',
@@ -6101,7 +6234,7 @@ function App() {
           )
         ),
         /* ── EXPANDED EDIT FORM (full replica of queue row's expanded form) ── */
-        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--surface)'} },
+        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--amber-light)'} },
           /* ── Cancel / Save changes buttons ── */
           h('div', { style:{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:12} },
             h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:e=>{ e.stopPropagation(); cancelEdit(); } }, 'Discard'),
@@ -6271,26 +6404,28 @@ function App() {
                 ),
                 'Reorder'
               ),
-              /* ── LOW STOCK THRESHOLD CONTROL ── */
-              stockTab === 'lowstock' && h('div', { style:{display:'flex',alignItems:'center',gap:4,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'3px 8px',flexShrink:0} },
-                h('span', { className:'low-stock-label', style:{fontSize:10,fontWeight:600,color:'var(--muted)',whiteSpace:'nowrap',userSelect:'none'} }, '\u26a0\ufe0f Low stock if'),
-                h('select', {
-                  value: lowStockOp,
-                  onChange: e => { setLowStockOp(e.target.value); localStorage.setItem('lowStockOp', e.target.value); },
-                  style:{fontSize:11,fontWeight:600,color:'var(--text)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'1px 3px',cursor:'pointer',outline:'none',fontFamily:'var(--font)'},
-                  title:'Comparison operator'
-                },
-                  h('option', { value:'lt'  }, isMobile ? '<' : '< (below)'),
-                  h('option', { value:'lte' }, isMobile ? '\u2264' : '\u2264 (below or equal)')
-                ),
-                h('input', {
-                  type:'number', min:1, max:999,
-                  value: lowStockN,
-                  onChange: e => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1) { setLowStockN(v); localStorage.setItem('lowStockN', v); } },
-                  style:{width:44,fontSize:12,fontWeight:700,color:'var(--text)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'1px 5px',outline:'none',fontFamily:'var(--font)',textAlign:'center'},
-                  title:'Threshold quantity'
-                }),
-                h('span', { className:'low-stock-units', style:{fontSize:10,color:'var(--muted)',userSelect:'none'} }, 'units')
+              /* ── LOW STOCK THRESHOLD CONTROL + VIEW TOGGLE ── */
+              stockTab === 'lowstock' && h('div', { style:{display:'flex',alignItems:'center',gap:6,flexShrink:0,flexWrap:'wrap'} },
+                h('div', { style:{display:'flex',alignItems:'center',gap:4,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:8,padding:'3px 8px'} },
+                  h('span', { className:'low-stock-label', style:{fontSize:10,fontWeight:600,color:'var(--muted)',whiteSpace:'nowrap',userSelect:'none'} }, '\u26a0\ufe0f Low stock if'),
+                  h('select', {
+                    value: lowStockOp,
+                    onChange: e => { setLowStockOp(e.target.value); localStorage.setItem('lowStockOp', e.target.value); },
+                    style:{fontSize:11,fontWeight:600,color:'var(--text)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'1px 3px',cursor:'pointer',outline:'none',fontFamily:'var(--font)'},
+                    title:'Comparison operator'
+                  },
+                    h('option', { value:'lt'  }, isMobile ? '<' : '< (below)'),
+                    h('option', { value:'lte' }, isMobile ? '\u2264' : '\u2264 (below or equal)')
+                  ),
+                  h('input', {
+                    type:'number', min:1, max:999,
+                    value: lowStockN,
+                    onChange: e => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1) { setLowStockN(v); localStorage.setItem('lowStockN', v); } },
+                    style:{width:44,fontSize:12,fontWeight:700,color:'var(--text)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'1px 5px',outline:'none',fontFamily:'var(--font)',textAlign:'center'},
+                    title:'Threshold quantity'
+                  }),
+                  h('span', { className:'low-stock-units', style:{fontSize:10,color:'var(--muted)',userSelect:'none'} }, 'units')
+                )
               ),
               stockTab === 'ordering' && h('div', { style:{display:'flex',alignItems:'center',gap:6,flexShrink:0} },
                 h('button', {
@@ -6399,7 +6534,7 @@ function App() {
               (stockTab === 'ordering' || stockTab === 'lowstock') && h('div', { style:{display:'flex',gap:4,flexShrink:0,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:10,padding:'3px'} },
                 h('button', {
                   className: 'stock-tab-btn',
-                  onClick: () => setStockTab('lowstock'),
+                  onClick: () => goReorderSubTabByName('lowstock'),
                   style:{
                     flexShrink: 0,
                     display: 'flex',
@@ -6432,7 +6567,7 @@ function App() {
                 ),
                 h('button', {
                   className: 'stock-tab-btn',
-                  onClick: () => { setStockTab('ordering'); setOrderingSubTab('pending'); },
+                  onClick: () => goReorderSubTabByName('pending'),
                   style:{
                     flexShrink: 0,
                     display: 'flex',
@@ -6474,7 +6609,7 @@ function App() {
                 ),
                 h('button', {
                   className: 'stock-tab-btn',
-                  onClick: () => { setStockTab('ordering'); setOrderingSubTab('purchase'); },
+                  onClick: () => goReorderSubTabByName('purchase'),
                   style:{
                     flexShrink: 0,
                     display: 'flex',
@@ -6516,6 +6651,8 @@ function App() {
 
 
 
+          h('div', { key:'reorder-content-'+getReorderSubTab(), ...reorderSwipeHandlers, style:{touchAction:'pan-y', minHeight:'50vh', animation: getReorderSubTab() ? (reorderSlideDir===1?'tabPushInFromRight':'tabPushInFromLeft')+' 0.22s ease' : undefined} },
+
           /* ── TAB: LOW STOCK ── */
           stockTab === 'lowstock' && h('div', null,
             allAlerts.length === 0 && h('div', { style:{textAlign:'center',padding:'72px 20px'} },
@@ -6529,16 +6666,20 @@ function App() {
             ),
             allAlerts.length > 0 && h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, '\u26a0\ufe0f Low Stock List'),
             allAlerts.length > 0 && h('div', { ref: stockUnitsSentinelRef, style:{height:0} }),
-            allAlerts.length > 0 && h('p', {
+            allAlerts.length > 0 && h('div', {
               style:{
-                fontSize:11,color:'var(--muted)',
+                display:'flex', alignItems:'center', justifyContent:'flex-start', gap:8,
                 marginTop:stockUnitsLineStuck?0:3,
                 marginBottom:14,
                 position:'sticky', top:Math.max(0, stockStickyHeaderH - 2), zIndex:90,
                 background:'var(--bg)', paddingBottom:4, paddingTop:0
               }
-            }, allAlerts.length+' product'+(allAlerts.length!==1?'s':'')+' \u2014 '+allAlerts.reduce((sum,p)=>sum+p.stock_count,0)+(allAlerts.reduce((sum,p)=>sum+p.stock_count,0)!==1?' units':' unit')),
-            outOfStockList.length > 0 && h('div', { style:{marginBottom:24} },
+            },
+              h('span', { style:{fontSize:11,color:'var(--muted)'} }, allAlerts.length+' product'+(allAlerts.length!==1?'s':'')+' \u2014 '+allAlerts.reduce((sum,p)=>sum+p.stock_count,0)+(allAlerts.reduce((sum,p)=>sum+p.stock_count,0)!==1?' units':' unit')),
+              h(QueueViewToggle, { mode:lowViewMode, setMode:setLowViewMode })
+            ),
+            /* ── PRODUCT VIEW (flat list, unchanged) ── */
+            lowViewMode === 'product' && outOfStockList.length > 0 && h('div', { style:{marginBottom:24} },
               h('div', { style:{display:'flex',alignItems:'center',gap:8,marginBottom:10} },
                 h('div', { style:{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'#991b1b'} }, '\ud83d\udd34 Out of Stock'),
                 h('div', { style:{flex:1,height:1,background:'#fca5a5'} }),
@@ -6548,7 +6689,7 @@ function App() {
                 outOfStockList.map(p => StockRow({ p }))
               )
             ),
-            lowStockList.length > 0 && h('div', { style:{marginBottom:24} },
+            lowViewMode === 'product' && lowStockList.length > 0 && h('div', { style:{marginBottom:24} },
               h('div', { style:{display:'flex',alignItems:'center',gap:8,marginBottom:10} },
                 h('div', { style:{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'0.08em',color:'#713f12'} }, '\ud83d\udfe1 Low Stock (' + (lowStockOp==='lte' ? '1\u2013'+lowStockN : '1\u2013'+(lowStockN-1)) + ' units)'),
                 h('div', { style:{flex:1,height:1,background:'#fde68a'} }),
@@ -6557,6 +6698,143 @@ function App() {
               h('div', { style:{border:'1px solid #fde68a',borderRadius:12,overflow:'hidden',background:'var(--surface)'} },
                 lowStockList.map(p => StockRow({ p }))
               )
+            ),
+            /* ── PRODUCT QR GROUP VIEW ── */
+            lowViewMode === 'link' && allAlerts.length > 0 && h('div', { style:{display:'flex',flexDirection:'column',gap:8,marginBottom:24} },
+              (()=>{
+                const groups = [];
+                const seen = {};
+                [...allAlerts].forEach(p => {
+                  const key = p.qr_link_url || '__none__';
+                  if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
+                  groups.find(g=>g.key===key).items.push(p);
+                });
+                groups.sort((a,b) => a.key==='__none__' ? 1 : b.key==='__none__' ? -1 : 0);
+                return groups.map(({ key, items }) => {
+                  const expanded = lowQrGroupExpanded[key] !== false;
+                  const totalUnits = items.reduce((s,p)=>s+p.stock_count,0);
+                  const repP = items[0];
+                  const _s = suppliers.find(s=>s.name===repP.supplier);
+                  const _thumb = _s && (_s.logoUrl || _s.imageUrl);
+                  return h('div', { key },
+                    h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
+                      /* group header */
+                      h('div', {
+                        style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'relative',zIndex:expanded?2:1,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?'0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)':'none'},
+                        onClick:()=>setLowQrGroupExpanded(prev=>({...prev,[key]:!expanded})),
+                        onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
+                        onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
+                      },
+                        /* QR thumbnail */
+                        h('div', {
+                          style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:key==='__none__'?'1px dashed var(--border)':'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:key!=='__none__'?'zoom-in':'default'},
+                          onClick:e=>{ e.stopPropagation(); if(key!=='__none__') setQrLightbox({url:key,id:repP.id}); }
+                        },
+                          key!=='__none__'
+                            ? h('img',{src:key,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}})
+                            : h('div',{style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'var(--muted)',pointerEvents:'none'}},
+                                h('svg',{xmlns:'http://www.w3.org/2000/svg',width:22,height:22,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
+                                  h('rect',{x:'3',y:'3',width:'7',height:'7',rx:'1'}),h('rect',{x:'14',y:'3',width:'7',height:'7',rx:'1'}),h('rect',{x:'3',y:'14',width:'7',height:'7',rx:'1'}),
+                                  h('rect',{x:'14',y:'14',width:'3',height:'3',rx:'0.5'}),h('rect',{x:'19',y:'14',width:'2',height:'2',rx:'0.5'}),h('rect',{x:'14',y:'19',width:'2',height:'2',rx:'0.5'}),h('rect',{x:'19',y:'19',width:'2',height:'2',rx:'0.5'})
+                                ),
+                                h('span',{style:{fontSize:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'No QR')
+                              )
+                        ),
+                        /* supplier + counts */
+                        h('div', { style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:5} },
+                          h('div', { style:{display:'flex',alignItems:'center',gap:8} },
+                            _thumb
+                              ? h('img',{src:_thumb,style:{width:28,height:28,borderRadius:6,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                              : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--muted)'}},'🏬'),
+                            h('span',{style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140,display:'inline-block'}},
+                              repP.supplier || h('em',{style:{color:'var(--muted)',fontWeight:400,fontSize:12}},'No supplier'))
+                          ),
+                          h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                            h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
+                            h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
+                          )
+                        )
+                      ),
+                      /* expanded rows */
+                      expanded && h('div', { style:{padding:'5px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px'} },
+                        h('div', { style:{borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',gap:0,overflow:'hidden'} },
+                          h('div', { style:{flex:1,display:'flex',flexDirection:'column'} },
+                            items.map(p => StockRow({ p, flush:true }))
+                          )
+                        )
+                      )
+                    )
+                  );
+                });
+              })()
+            ),
+            /* ── SUPPLIER GROUP VIEW ── */
+            lowViewMode === 'supplier' && allAlerts.length > 0 && h('div', { style:{display:'flex',flexDirection:'column',gap:8,marginBottom:24} },
+              (()=>{
+                const groups = [];
+                const seen = {};
+                [...allAlerts].forEach(p => {
+                  const key = p.supplier || '__none__';
+                  if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
+                  groups.find(g=>g.key===key).items.push(p);
+                });
+                groups.sort((a,b) => a.key==='__none__' ? 1 : b.key==='__none__' ? -1 : 0);
+                return groups.map(({ key, items }) => {
+                  const expanded = lowSupGroupExpanded[key] !== false;
+                  const totalUnits = items.reduce((s,p)=>s+p.stock_count,0);
+                  const _s = key !== '__none__' ? suppliers.find(s=>s.name===key) : null;
+                  const supplierImgUrl  = _s?.imageUrl || null;
+                  const supplierLogoUrl = _s?.logoUrl  || null;
+                  return h('div', { key },
+                    h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
+                      /* group header */
+                      h('div', {
+                        style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'relative',zIndex:expanded?2:1,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?'0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)':'none'},
+                        onClick:()=>setLowSupGroupExpanded(prev=>({...prev,[key]:!expanded})),
+                        onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
+                        onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
+                      },
+                        /* supplier imageUrl — big thumbnail on the left */
+                        h('div', {
+                          style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:supplierImgUrl?'1px solid var(--border)':'1px dashed var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:supplierImgUrl?'zoom-in':'default'},
+                          onClick:e=>{ e.stopPropagation(); if(supplierImgUrl) setSavedSupplierImgPreviewUrl(supplierImgUrl); }
+                        },
+                          supplierImgUrl
+                            ? h('img',{src:supplierImgUrl,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}})
+                            : h('div',{style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'var(--muted)',pointerEvents:'none'}},
+                                h('span',{style:{fontSize:20}},'🏬'),
+                                key!=='__none__' && h('span',{style:{fontSize:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'No img')
+                              )
+                        ),
+                        /* logo + name + counts */
+                        h('div', { style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:5} },
+                          h('div', { style:{display:'flex',alignItems:'center',gap:8} },
+                            key !== '__none__'
+                              ? (supplierLogoUrl
+                                  ? h('img',{src:supplierLogoUrl,style:{width:28,height:28,borderRadius:6,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                                  : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--muted)'}},'?'))
+                              : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--muted)'}},'🏬'),
+                            h('span',{style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140,display:'inline-block'}},
+                              key !== '__none__' ? key : h('em',{style:{color:'var(--muted)',fontWeight:400,fontSize:12}},'No supplier'))
+                          ),
+                          h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                            h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
+                            h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
+                          )
+                        )
+                      ),
+                      /* expanded rows */
+                      expanded && h('div', { style:{padding:'5px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px'} },
+                        h('div', { style:{borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',gap:0,overflow:'hidden'} },
+                          h('div', { style:{flex:1,display:'flex',flexDirection:'column'} },
+                            items.map(p => StockRow({ p, flush:true }))
+                          )
+                        )
+                      )
+                    )
+                  );
+                });
+              })()
             ),
             allAlerts.length > 0 && h('p', { style:{fontSize:11,color:'var(--subtle)',textAlign:'center',marginTop:32} },
               'Tip: click "Order" to send a product to the Ordering tab, or open a product to edit its full stock count.'
@@ -6575,7 +6853,7 @@ function App() {
               setOrderingIds(nx); localStorage.setItem('orderingIds', JSON.stringify(nx));
             };
             const ocCancel = () => {
-              ocDragging.current = false;
+              ocClearHold();
               setOcSwipe({ id:null, offset:0, ready:false });
             };
             const renderCard = (p, isOOS) => {
@@ -6585,94 +6863,274 @@ function App() {
               const isUndoHighlighted = undoHighlightIds.includes(p.id);
               const isTarget   = ocSwipe.id === p.id;
               const swipeOff   = isTarget ? Math.min(0, ocSwipe.offset) : 0;
-              const swipeReady = isTarget && ocSwipe.ready;
+              const isHoldingThis = ocHold.id === p.id;
+              /* ── expand / collapse (same logic as Low sub-tab StockRow) ── */
+              const rowExpanded = expandedStockId === p.id;
+              const draft = rowExpanded ? (stockEditDraft || p) : p;
+              const upd = (patch) => setStockEditDraft(d => d ? {...d, ...patch} : {...p, ...patch});
+              const toggleExpand = () => {
+                if (swipeOff !== 0) return;
+                if (rowExpanded) { setExpandedStockId(null); setStockEditDraft(null); }
+                else { setExpandedStockId(p.id); setStockEditDraft({...p}); }
+              };
+              const cancelEdit = () => { setStockEditDraft({...p}); };
+              const saveEdit = () => {
+                const updated = { ...draft };
+                setProducts(prev => { const next = prev.map(item => item.id === p.id ? { ...item, ...updated } : item); persistProducts(next); return next; });
+                setStockEditDraft({...updated});
+              };
+              const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(p) : false;
+              const lbl = (text) => h('label', { style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em',color:'var(--muted)',display:'block',marginBottom:3} }, text);
+              const handleStockImgReplace = (e) => { const file = e.target.files?.[0]; if (!file) return; resizeImage(file).then(dataUrl => upd({ image_url: dataUrl })).catch(()=>{}); e.target.value = ''; };
               const onDown = e => {
                 const cx = e.touches ? e.touches[0].clientX : e.clientX;
-                ocStartX.current = cx;
-                ocDragging.current = true;
-                setOcSwipe({ id:p.id, offset:0, ready:true });
+                const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                ocPressStart.current = { x:cx, y:cy };
+                if (isTarget && ocSwipe.offset !== 0) return; // already revealed — hold does nothing
+                ocStartHold(p.id, () => setOcSwipe({ id:p.id, offset:-94, ready:true }));
               };
               const onMove = e => {
-                if (!ocDragging.current) return;
                 const cx = e.touches ? e.touches[0].clientX : e.clientX;
-                const dx = cx - ocStartX.current;
-                if (e.cancelable && e.touches) e.preventDefault();
-                if (dx < 0) setOcSwipe(s => s.id === p.id ? { ...s, offset: Math.max(dx, -90) } : s);
+                const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                const dx = cx - ocPressStart.current.x;
+                const dy = cy - ocPressStart.current.y;
+                if (Math.abs(dx) > OC_HOLD_MOVE_TOLERANCE || Math.abs(dy) > OC_HOLD_MOVE_TOLERANCE) ocClearHold();
               };
-              const onUp = e => {
-                ocDragging.current = false;
-                const cx = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
-                const dx = cx - ocStartX.current;
-                if (dx < -40) {
-                  setOcSwipe({ id:p.id, offset:-90, ready:true });
-                } else {
-                  ocCancel();
-                }
-              };
-              return h('div', { key:p.id, 'data-oc-row':true, style:{ position:'relative', overflow:'hidden', borderBottom:'1px solid var(--border)' } },
-                h('div', {
-                  onClick: () => ocDoRemove(p.id),
-                  style:{
-                    position:'absolute', top:0, right:0, bottom:0, width:90,
-                    background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', gap:5,
-                    color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer'
-                  }
-                }, 'Remove'),
-                h('div', {
-                  onMouseDown:onDown, onMouseMove:onMove, onMouseUp:onUp,
-                  onMouseEnter: e => { if (!(isUndoHighlighted||isHighlighted)) e.currentTarget.style.background='var(--amber-light)'; },
-                  onMouseLeave: e => { if (ocSwipe.id === p.id && ocSwipe.offset === 0) ocCancel(); if (!(isUndoHighlighted||isHighlighted)) e.currentTarget.style.background='var(--surface)'; },
-                  onTouchStart:onDown, onTouchMove:onMove, onTouchEnd:onUp,
-                  style:{
-                    transform: 'translateX('+swipeOff+'px)',
-                    transition: swipeOff===0 ? 'transform 0.25s ease' : 'none',
-                    position:'relative', zIndex:1,
-                    background: (isUndoHighlighted||isHighlighted) ? 'var(--amber-light)' : 'var(--surface)',
-                    padding:'8px 12px', display:'grid', gridTemplateColumns:'44px 1fr auto', gap:10, alignItems:'center',
-                    boxShadow:(isUndoHighlighted||isHighlighted)?'inset 0 0 0 2px var(--amber)':'none',
-                    userSelect:'none',
-                  }
-                },
-                h('div', { style:{width:44,height:44,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0,opacity:p.image_url?1:0.3} },
-                  p.image_url ? h('img', { src:p.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
-                ),
-                h('div', { style:{minWidth:0} },
-                  h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, p.product_name||'Unnamed'),
-                  h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (p.product_type ? p.product_type+', ' : '') + (p.category||'Uncategorized')),
-                  expandedQtyId === p.id
-                    ? h('div', { style:{display:'flex',alignItems:'center',gap:6,marginTop:5} },
-                        h('button', { onMouseDown:e=>e.stopPropagation(), onClick:e=>{ e.stopPropagation(); setOrderQty(q=>Math.max(1,q-1)); }, style:{width:20,height:20,borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text)'} }, '\u2212'),
-                        h('span', { style:{fontSize:12,fontWeight:700,minWidth:22,textAlign:'center',color:'var(--text)'} }, orderQty),
-                        h('button', { onMouseDown:e=>e.stopPropagation(), onClick:e=>{ e.stopPropagation(); setOrderQty(q=>q+1); }, style:{width:20,height:20,borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text)'} }, '+')
-                      )
-                    : h('span', {
-                        onMouseDown: e => e.stopPropagation(),
-                        onClick: e => { e.stopPropagation(); setExpandedQtyId(p.id); },
-                        style:{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:700,color:'var(--text)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:6,padding:'2px 7px',marginTop:5,cursor:'pointer',userSelect:'none',transition:'border-color 0.15s'},
-                        onMouseEnter:e=>e.currentTarget.style.borderColor='var(--amber)',
-                        onMouseLeave:e=>e.currentTarget.style.borderColor='var(--border)'
-                      }, '\u00d7'+orderQty)
-                ),
-                h('div', { style:{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'} },
-                  isOOS
-                    ? h('span', { style:{fontSize:9,fontWeight:700,color:'#991b1b',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'Out of stock')
-                    : h('span', { style:{fontSize:9,fontWeight:700,color:'#713f12',background:'#fef9c3',border:'1px solid #fde68a',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, p.stock_count+' left'),
-                  h('button', {
-                    className:'btn-ghost',
-                    style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap'},
-                    onMouseDown: e => e.stopPropagation(),
-                    onClick:()=>{
-                      const entry = { id:p.id, product_name:p.product_name||'Unnamed', category:p.category||'Uncategorized', product_type:p.product_type||'', image_url:p.image_url||'', stock_count:p.stock_count, qty:orderQty, addedAt:new Date().toISOString() };
-                      const next = [entry, ...purchaseOrders.filter(o => o.id !== p.id)];
-                      setPurchaseOrders(next);
-                      localStorage.setItem('purchaseOrders', JSON.stringify(next));
-                      setPrevOrderingIds([...orderingIds]);
-                      const nextOrdering = orderingIds.filter(id => id !== p.id);
-                      setOrderingIds(nextOrdering);
-                      localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
+              const onUp = () => ocClearHold();
+              return h('div', { key:p.id, 'data-oc-row':true, style:{ position:'relative', borderBottom:'1px solid var(--border)' } },
+                /* overflow:hidden scoped to row only so the expand panel isn't clipped */
+                h('div', { style:{ overflow:'hidden' } },
+                  h('div', {
+                    onMouseDown:onDown, onMouseMove:onMove, onMouseUp:onUp,
+                    onClick: toggleExpand,
+                    onMouseEnter: e => { if (!rowExpanded && !(isUndoHighlighted||isHighlighted)) e.currentTarget.style.background='var(--amber-light)'; },
+                    onMouseLeave: e => { onUp(); if (!rowExpanded && !(isUndoHighlighted||isHighlighted)) e.currentTarget.style.background='var(--surface)'; },
+                    onTouchStart:onDown, onTouchMove:onMove, onTouchEnd:onUp, onTouchCancel:onUp,
+                    style:{
+                      position:'relative', zIndex:1,
+                      background: rowExpanded ? 'var(--amber-light)' : (isUndoHighlighted||isHighlighted) ? 'var(--amber-light)' : 'var(--surface)',
+                      padding:'8px 12px', display:'grid', gridTemplateColumns:'44px 1fr auto', gap:10, alignItems:'center',
+                      boxShadow:(isUndoHighlighted||isHighlighted)?'inset 0 0 0 2px var(--amber)':'none',
+                      userSelect:'none', cursor:'pointer',
                     }
-                  }, 'Purchase Order'),
-                )
+                  },
+                  isHoldingThis && h('div', {
+                    style:{
+                      position:'absolute', top:0, right:0, width:3, height:(ocHold.pct)+'%',
+                      background:'var(--amber)', zIndex:2, pointerEvents:'none',
+                    }
+                  }),
+                  h('div', { style:{width:44,height:44,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0,opacity:p.image_url?1:0.3} },
+                    p.image_url ? h('img', { src:p.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
+                  ),
+                  h('div', { style:{minWidth:0} },
+                    h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, p.product_name||'Unnamed'),
+                    h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (p.product_type ? p.product_type+', ' : '') + (p.category||'Uncategorized')),
+                    expandedQtyId === p.id
+                      ? h('div', { style:{display:'flex',alignItems:'center',gap:6,marginTop:5} },
+                          h('button', { onMouseDown:e=>e.stopPropagation(), onClick:e=>{ e.stopPropagation(); setOrderQty(q=>Math.max(1,q-1)); }, style:{width:20,height:20,borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text)'} }, '\u2212'),
+                          h('span', { style:{fontSize:12,fontWeight:700,minWidth:22,textAlign:'center',color:'var(--text)'} }, orderQty),
+                          h('button', { onMouseDown:e=>e.stopPropagation(), onClick:e=>{ e.stopPropagation(); setOrderQty(q=>q+1); }, style:{width:20,height:20,borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text)'} }, '+')
+                        )
+                      : h('span', {
+                          onMouseDown: e => e.stopPropagation(),
+                          onClick: e => { e.stopPropagation(); setExpandedQtyId(p.id); },
+                          style:{display:'inline-flex',alignItems:'center',fontSize:11,fontWeight:700,color:'var(--text)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:6,padding:'2px 7px',marginTop:5,cursor:'pointer',userSelect:'none',transition:'border-color 0.15s'},
+                          onMouseEnter:e=>e.currentTarget.style.borderColor='var(--amber)',
+                          onMouseLeave:e=>e.currentTarget.style.borderColor='var(--border)'
+                        }, '\u00d7'+orderQty)
+                  ),
+                  h('div', { style:{
+                      display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end',
+                      transform: 'translateX('+swipeOff+'px)',
+                      transition: swipeOff===0 ? 'transform 0.25s ease' : 'none',
+                      position:'relative',
+                    } },
+                    isOOS
+                      ? h('span', { style:{fontSize:9,fontWeight:700,color:'#991b1b',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'Out of stock')
+                      : h('span', { style:{fontSize:9,fontWeight:700,color:'#713f12',background:'#fef9c3',border:'1px solid #fde68a',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, p.stock_count+' left'),
+                    h('button', {
+                      className:'btn-ghost',
+                      disabled: swipeOff !== 0,
+                      style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',opacity:swipeOff!==0?0.4:1,cursor:swipeOff!==0?'not-allowed':'pointer',pointerEvents:swipeOff!==0?'none':'auto'},
+                      onMouseDown: e => e.stopPropagation(),
+                      onClick: e => {
+                        e.stopPropagation();
+                        if (swipeOff !== 0) return;
+                        const entry = { id:p.id, product_name:p.product_name||'Unnamed', category:p.category||'Uncategorized', product_type:p.product_type||'', image_url:p.image_url||'', stock_count:p.stock_count, qty:orderQty, addedAt:new Date().toISOString() };
+                        const next = [entry, ...purchaseOrders.filter(o => o.id !== p.id)];
+                        setPurchaseOrders(next);
+                        localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                        setPrevOrderingIds([...orderingIds]);
+                        const nextOrdering = orderingIds.filter(id => id !== p.id);
+                        setOrderingIds(nextOrdering);
+                        localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
+                      }
+                    }, 'Purchase Order'),
+                    h('div', {
+                      onClick: () => ocDoRemove(p.id),
+                      onMouseDown: e => e.stopPropagation(),
+                      'data-oc-action': true,
+                      style:{
+                        position:'absolute', top:0, bottom:0, left:'calc(100% + 15px)', width:90,
+                        background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', gap:5,
+                        color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer'
+                      }
+                    }, 'Remove'),
+                  )
+                  )
+                ),
+                /* ── expanded edit panel (mirrors Low sub-tab StockRow) ── */
+                rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--surface)'} },
+                  h('div', { style:{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:12} },
+                    h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:e=>{ e.stopPropagation(); cancelEdit(); } }, 'Discard'),
+                    h('button', {
+                      className: (isDirty ? 'btn-amber save-changes-glow' : 'btn-ghost'),
+                      style:{fontSize:12,padding:'6px 14px',transition:'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease'},
+                      onClick:e=>{ e.stopPropagation(); if(isDirty) saveEdit(); },
+                      disabled: !isDirty
+                    }, 'Save changes')
+                  ),
+                  h('div', { style:{display:'grid',gridTemplateColumns:'110px minmax(0,1fr)',gap:'10px 14px',marginBottom:12} },
+                    h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
+                      h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image',
+                          onClick:()=>document.getElementById('pending-img-'+p.id)?.click() },
+                        draft.image_url
+                          ? h('img', { src:draft.image_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block'} })
+                          : h('div', { style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,fontSize:24,color:'var(--muted)'} }, '\ud83d\udce6', h('span',{style:{fontSize:9,textTransform:'uppercase',letterSpacing:'0.05em'}},'tap to add')),
+                        h('div', { style:{position:'absolute',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',opacity:0,transition:'opacity 0.15s'}, onMouseEnter:e=>e.currentTarget.style.opacity=1, onMouseLeave:e=>e.currentTarget.style.opacity=0 },
+                          h('span',{style:{fontSize:18}},'\ud83d\uddbc\ufe0f')
+                        ),
+                        h('input', { id:'pending-img-'+p.id, type:'file', accept:'image/*', style:{display:'none'}, onChange:handleStockImgReplace })
+                      ),
+                      h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3,width:'100%'} },
+                        h('div', {
+                          style:{width:90,height:90,borderRadius:8,border:'1px dashed var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',overflow:'hidden',position:'relative'},
+                          className:'img-box-animated',
+                          title: draft.qr_link_url ? 'View QR image' : 'Upload QR Link image',
+                          onClick: draft.qr_link_url ? (e=>{ e.stopPropagation(); setQrLightbox({url:draft.qr_link_url,id:p.id}); }) : (()=>document.getElementById('pending-qr-'+p.id)?.click())
+                        },
+                          draft.qr_link_url
+                            ? h('img', { src:draft.qr_link_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block',cursor:'zoom-in'} })
+                            : h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,pointerEvents:'none'} },
+                                h('svg', { xmlns:'http://www.w3.org/2000/svg', width:20, height:20, viewBox:'0 0 24 24', fill:'none', stroke:'var(--muted)', strokeWidth:1.5, strokeLinecap:'round', strokeLinejoin:'round' },
+                                  h('rect',{x:'3',y:'3',width:'7',height:'7',rx:'1'}),
+                                  h('rect',{x:'14',y:'3',width:'7',height:'7',rx:'1'}),
+                                  h('rect',{x:'3',y:'14',width:'7',height:'7',rx:'1'}),
+                                  h('rect',{x:'14',y:'14',width:'3',height:'3',rx:'0.5'}),
+                                  h('rect',{x:'19',y:'14',width:'2',height:'2',rx:'0.5'}),
+                                  h('rect',{x:'14',y:'19',width:'2',height:'2',rx:'0.5'}),
+                                  h('rect',{x:'18',y:'18',width:'3',height:'3',rx:'0.5'})
+                                ),
+                                h('span', { style:{fontSize:9,color:'var(--muted)',textAlign:'center',lineHeight:1.2,marginTop:2} }, 'QR Link')
+                              ),
+                          h('input', { id:'pending-qr-'+p.id, type:'file', accept:'image/*', style:{display:'none'},
+                            onChange: e => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = ev => { setQrCropStockTarget(true); setQrOriginalSrc(ev.target.result); setQrSavedCrop(null); setQrCropSrc(ev.target.result); };
+                              reader.readAsDataURL(file);
+                              e.target.value = '';
+                            }
+                          })
+                        ),
+                      )
+                    ),
+                    h('div', { style:{display:'flex',flexDirection:'column',gap:10,minWidth:0} },
+                      h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10} },
+                        h('div', null,
+                          lbl('Stock Qty'),
+                          h('div', { style:{display:'flex',alignItems:'center',gap:6} },
+                            h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:Math.max(0,(draft.stock_count||0)-1)});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '\u2212'),
+                            h('span', { style:{minWidth:24,textAlign:'center',fontSize:13,fontWeight:700,color:'var(--text)',userSelect:'none'} }, draft.stock_count),
+                            h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:(draft.stock_count||0)+1});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '+')
+                          )
+                        ),
+                        h('div', null,
+                          lbl('ea. Price'),
+                          h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'(USD)', style:{padding:'5px 8px',fontSize:13}, value:draft.estimated_price||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0}) })
+                        )
+                      ),
+                      h('div', { style:{minWidth:0} },
+                        lbl('Supplier'),
+                        (()=>{
+                          const sSupOpen = draft._supDropOpen;
+                          const selSup = suppliers.find(s=>s.name===draft.supplier);
+                          return h('div', { style:{position:'relative',minWidth:0} },
+                            sSupOpen && h('div', { style:{position:'fixed',inset:0,zIndex:299}, onClick:e=>{ e.stopPropagation(); upd({_supDropOpen:false}); } }),
+                            h('div', {
+                              className:'cat-custom-trigger'+(sSupOpen?' open':''),
+                              style:{padding:'5px 10px',fontSize:13,minHeight:32,background:'var(--surface)',borderColor:sSupOpen?'var(--amber)':undefined},
+                              onClick:e=>{ e.stopPropagation(); upd({_supDropOpen:!sSupOpen}); }
+                            },
+                              selSup && (selSup.logoUrl || selSup.imageUrl)
+                                ? h('img',{src:selSup.logoUrl || selSup.imageUrl,style:{width:18,height:18,borderRadius:4,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)',marginRight:6}})
+                                : draft.supplier ? h('div',{style:{width:18,height:18,borderRadius:4,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'var(--muted)',marginRight:6}},'?') : null,
+                              h('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:draft.supplier?'var(--text)':'var(--muted)',fontSize:13}}, draft.supplier||'')
+                            ),
+                            sSupOpen && h('div', {
+                              style:{position:'absolute',top:'100%',left:0,right:0,background:'var(--surface)',border:'1px solid var(--amber)',borderTop:'none',borderBottomLeftRadius:8,borderBottomRightRadius:8,boxShadow:'0 8px 20px rgba(0,0,0,0.15)',zIndex:400,overflow:'hidden',maxHeight:180,overflowY:'auto',scrollbarWidth:'none'}
+                            },
+                              h('div',{className:'cat-option placeholder'+((!draft.supplier)?' selected':''),onClick:e=>{ e.stopPropagation(); upd({supplier:'',_supDropOpen:false}); }},'\u00a0'),
+                              suppliers.map(s=>h('div',{
+                                key:s.name,
+                                className:'cat-option'+(draft.supplier===s.name?' selected':''),
+                                style:{display:'flex',alignItems:'center',gap:8},
+                                onClick:e=>{ e.stopPropagation(); upd({supplier:s.name,_supDropOpen:false}); }
+                              },
+                                s.logoUrl || s.imageUrl
+                                  ? h('img',{src:s.logoUrl || s.imageUrl,style:{width:20,height:20,borderRadius:4,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                                  : h('div',{style:{width:20,height:20,borderRadius:4,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'var(--muted)'}},'?'),
+                                h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}},s.name)
+                              ))
+                            )
+                          );
+                        })()
+                      ),
+                      h('div', null,
+                        lbl('Each Buying Price'),
+                        h('div', { style:{position:'relative'} },
+                          !!(draft.product_price && draft.product_price !== '') && h('span', { style:{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '\u00a5'),
+                          h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'original \u00a5', style:{padding:'5px 8px',fontSize:13,...(!!(draft.product_price && draft.product_price !== '') ? {paddingLeft:20} : {})}, value:draft.product_price||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_price:e.target.value}) })
+                        )
+                      ),
+                      h('div', null,
+                        lbl('Combine Buying Price'),
+                        h('div', { onClick:e=>e.stopPropagation() }, h(CombinePriceSplit, { valueCny:draft.combine_price_cny, valueUsd:draft.combine_price, onChangeCny:v=>upd({combine_price_cny:v}), onChangeUsd:v=>upd({combine_price:v}) }))
+                      )
+                    )
+                  ),
+                  h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10} },
+                    h('div', null,
+                      lbl('Type of product'),
+                      h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.product_type||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_type:e.target.value}) },
+                        h('option', { value:'' }, ''),
+                        productTypes.map(t=>h('option',{key:t,value:t},t))
+                      )
+                    ),
+                    h('div', null,
+                      lbl('Category'),
+                      h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.category||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({category:e.target.value}) },
+                        h('option', { value:'' }, ''),
+                        categories.map(c=>h('option',{key:c,value:c},c))
+                      )
+                    )
+                  ),
+                  h('div', { style:{marginBottom:10} },
+                    lbl('Product name'),
+                    h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.product_name, placeholder:'Unnamed product', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_name:e.target.value}) })
+                  ),
+                  h('div', { style:{marginBottom:10} },
+                    lbl('Tags'),
+                    h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, placeholder:'e.g. wireless, portable', value:(draft.tags||[]).join(', '), onClick:e=>e.stopPropagation(),
+                      onChange: e => upd({ tags: e.target.value.split(',').map(t=>t.trim()).filter(Boolean) }) })
+                  ),
+                  h('div', { style:{marginBottom:14} },
+                    lbl('Description'),
+                    h('textarea', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13,resize:'vertical',height:draft.description?64:32,lineHeight:1.5}, placeholder:'Product description\u2026', value:draft.description||'', onClick:e=>e.stopPropagation(),
+                      onChange: e => upd({ description: e.target.value }) })
+                  )
                 )
               );
             };
@@ -6739,25 +7197,41 @@ function App() {
                       const isHl = highlightedOrderId === o.id;
                       const isTarget = ocSwipe.id === o.id;
                       const swipeOff = isTarget ? Math.min(0, ocSwipe.offset) : 0;
+                      const isHoldingThis = ocHold.id === o.id;
+                      /* ── expand / collapse (same logic as Low & Pending sub-tabs) ── */
+                      const liveProduct = products.find(pr => pr.id === o.id) || o;
+                      const rowExpanded = expandedStockId === o.id;
+                      const draft = rowExpanded ? (stockEditDraft || liveProduct) : liveProduct;
+                      const upd = (patch) => setStockEditDraft(d => d ? {...d, ...patch} : {...liveProduct, ...patch});
+                      const toggleExpand = () => {
+                        if (swipeOff !== 0) return;
+                        if (rowExpanded) { setExpandedStockId(null); setStockEditDraft(null); }
+                        else { setExpandedStockId(o.id); setStockEditDraft({...liveProduct}); }
+                      };
+                      const cancelEdit = () => { setStockEditDraft({...liveProduct}); };
+                      const saveEdit = () => {
+                        const updated = { ...draft };
+                        setProducts(prev => { const next = prev.map(item => item.id === o.id ? { ...item, ...updated } : item); persistProducts(next); return next; });
+                        setStockEditDraft({...updated});
+                      };
+                      const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(liveProduct) : false;
+                      const lbl = (text) => h('label', { style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em',color:'var(--muted)',display:'block',marginBottom:3} }, text);
+                      const handleStockImgReplace = (e) => { const file = e.target.files?.[0]; if (!file) return; resizeImage(file).then(dataUrl => upd({ image_url: dataUrl })).catch(()=>{}); e.target.value = ''; };
                       const onDown = e => {
                         const cx = e.touches ? e.touches[0].clientX : e.clientX;
-                        ocStartX.current = cx;
-                        ocDragging.current = true;
-                        setOcSwipe({ id:o.id, offset:0, ready:true });
+                        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                        ocPressStart.current = { x:cx, y:cy };
+                        if (isTarget && ocSwipe.offset !== 0) return; // already revealed — hold does nothing
+                        ocStartHold(o.id, () => setOcSwipe({ id:o.id, offset:-94, ready:true }));
                       };
                       const onMove = e => {
-                        if (!ocDragging.current) return;
                         const cx = e.touches ? e.touches[0].clientX : e.clientX;
-                        const dx = cx - ocStartX.current;
-                        if (e.cancelable && e.touches) e.preventDefault();
-                        if (dx < 0) setOcSwipe(s => s.id === o.id ? { ...s, offset: Math.max(dx, -90) } : s);
+                        const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                        const dx = cx - ocPressStart.current.x;
+                        const dy = cy - ocPressStart.current.y;
+                        if (Math.abs(dx) > OC_HOLD_MOVE_TOLERANCE || Math.abs(dy) > OC_HOLD_MOVE_TOLERANCE) ocClearHold();
                       };
-                      const onUp = e => {
-                        ocDragging.current = false;
-                        const cx = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
-                        const dx = cx - ocStartX.current;
-                        if (dx < -40) { setOcSwipe({ id:o.id, offset:-90, ready:true }); } else { ocCancel(); }
-                      };
+                      const onUp = () => ocClearHold();
                       const doUndo = () => {
                         const nextPO = purchaseOrders.filter(x => x.id !== o.id);
                         setPurchaseOrders(nextPO);
@@ -6766,47 +7240,222 @@ function App() {
                         setOrderingIds(nextOrdering);
                         localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
                       };
-                      return h('div', { key:o.id, 'data-oc-row':true, style:{ position:'relative', overflow:'hidden', borderBottom:'1px solid var(--border)' } },
-                        h('div', {
-                          onClick: doUndo,
-                          style:{ position:'absolute', top:0, right:0, bottom:0, width:90, background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer' }
-                        }, 'Undo'),
-                        h('div', {
-                          onMouseDown:onDown, onMouseMove:onMove, onMouseUp:onUp,
-                          onMouseEnter: e => { if (!isHl) e.currentTarget.style.background='var(--amber-light)'; },
-                          onMouseLeave: e => { if (ocSwipe.id === o.id && ocSwipe.offset === 0) ocCancel(); if (!isHl) e.currentTarget.style.background='var(--surface)'; },
-                          onTouchStart:onDown, onTouchMove:onMove, onTouchEnd:onUp,
-                          style:{
-                            position:'relative', zIndex:1,
-                            transform:'translateX('+swipeOff+'px)',
-                            transition: ocDragging.current ? 'none' : 'transform 0.2s ease',
-                            background: isHl ? '#dcfce7' : 'var(--surface)',
-                            padding:'8px 12px', display:'grid', gridTemplateColumns:'38px 1fr auto', gap:10, alignItems:'center',
-                            userSelect:'none', cursor:'grab'
-                          }
-                        },
-                          h('div', { style:{width:38,height:38,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0,opacity:o.image_url?1:0.3} },
-                            o.image_url ? h('img', { src:o.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
+                      return h('div', { key:o.id, 'data-oc-row':true, style:{ position:'relative', borderBottom:'1px solid var(--border)' } },
+                        /* overflow:hidden scoped to row only so the expand panel isn't clipped */
+                        h('div', { style:{ overflow:'hidden' } },
+                          h('div', {
+                            onMouseDown:onDown, onMouseMove:onMove, onMouseUp:onUp,
+                            onClick: toggleExpand,
+                            onMouseEnter: e => { if (!rowExpanded && !isHl) e.currentTarget.style.background='var(--amber-light)'; },
+                            onMouseLeave: e => { onUp(); if (!rowExpanded && !isHl) e.currentTarget.style.background='var(--surface)'; },
+                            onTouchStart:onDown, onTouchMove:onMove, onTouchEnd:onUp, onTouchCancel:onUp,
+                            style:{
+                              position:'relative', zIndex:1,
+                              background: rowExpanded ? 'var(--amber-light)' : isHl ? '#dcfce7' : 'var(--surface)',
+                              padding:'8px 12px', display:'grid', gridTemplateColumns:'38px 1fr auto', gap:10, alignItems:'center',
+                              userSelect:'none', cursor:'pointer',
+                            }
+                          },
+                          isHoldingThis && h('div', {
+                            style:{
+                              position:'absolute', top:0, right:0, width:3, height:(ocHold.pct)+'%',
+                              background:'var(--amber)', zIndex:2, pointerEvents:'none',
+                            }
+                          }),
+                            h('div', { style:{width:38,height:38,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0,opacity:o.image_url?1:0.3} },
+                              o.image_url ? h('img', { src:o.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
+                            ),
+                            h('div', { style:{minWidth:0} },
+                              h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, o.product_name),
+                              h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (o.product_type ? o.product_type+', ' : '') + (o.category||'Uncategorized')),
+                              h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:3} }, 'Qty ordered: ',
+                                h('span', { style:{fontWeight:700,color:'var(--text)'} }, o.qty)
+                              )
+                            ),
+                            h('div', { style:{
+                                display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end',
+                                transform: 'translateX('+swipeOff+'px)',
+                                transition: swipeOff===0 ? 'transform 0.2s ease' : 'none',
+                                position:'relative',
+                              } },
+                              h('span', { style:{fontSize:9,fontWeight:700,color:'#166534',background:'#dcfce7',border:'1px solid #86efac',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'Ordered'),
+                              h('button', {
+                                className:'btn-ghost',
+                                disabled: swipeOff !== 0,
+                                style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',opacity:swipeOff!==0?0.4:1,cursor:swipeOff!==0?'not-allowed':'pointer',pointerEvents:swipeOff!==0?'none':'auto'},
+                                onMouseDown: e => e.stopPropagation(),
+                                onClick: e => {
+                                  e.stopPropagation();
+                                  if (swipeOff !== 0) return;
+                                  updateStock(o.id, o.qty);
+                                  const next = purchaseOrders.filter(x => x.id !== o.id);
+                                  setPurchaseOrders(next);
+                                  localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                }
+                              }, '\u2713 Restock '+o.qty),
+                              h('div', {
+                                onClick: doUndo,
+                                onMouseDown: e => e.stopPropagation(),
+                                'data-oc-action': true,
+                                style:{
+                                  position:'absolute', top:0, bottom:0, left:'calc(100% + 15px)', width:90,
+                                  background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center',
+                                  color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer'
+                                }
+                              }, 'Undo')
+                            )
+                          )
+                        ),
+                        /* ── expanded edit panel (mirrors Low & Pending sub-tabs) ── */
+                        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--surface)'} },
+                          h('div', { style:{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:12} },
+                            h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:e=>{ e.stopPropagation(); cancelEdit(); } }, 'Discard'),
+                            h('button', {
+                              className: (isDirty ? 'btn-amber save-changes-glow' : 'btn-ghost'),
+                              style:{fontSize:12,padding:'6px 14px',transition:'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease'},
+                              onClick:e=>{ e.stopPropagation(); if(isDirty) saveEdit(); },
+                              disabled: !isDirty
+                            }, 'Save changes')
                           ),
-                          h('div', { style:{minWidth:0} },
-                            h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, o.product_name),
-                            h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (o.product_type ? o.product_type+', ' : '') + (o.category||'Uncategorized')),
-                            h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:3} }, 'Qty ordered: ',
-                              h('span', { style:{fontWeight:700,color:'var(--text)'} }, o.qty)
+                          h('div', { style:{display:'grid',gridTemplateColumns:'110px minmax(0,1fr)',gap:'10px 14px',marginBottom:12} },
+                            h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
+                              h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image',
+                                  onClick:()=>document.getElementById('purchased-img-'+o.id)?.click() },
+                                draft.image_url
+                                  ? h('img', { src:draft.image_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block'} })
+                                  : h('div', { style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:4,fontSize:24,color:'var(--muted)'} }, '\ud83d\udce6', h('span',{style:{fontSize:9,textTransform:'uppercase',letterSpacing:'0.05em'}},'tap to add')),
+                                h('div', { style:{position:'absolute',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',opacity:0,transition:'opacity 0.15s'}, onMouseEnter:e=>e.currentTarget.style.opacity=1, onMouseLeave:e=>e.currentTarget.style.opacity=0 },
+                                  h('span',{style:{fontSize:18}},'\ud83d\uddbc\ufe0f')
+                                ),
+                                h('input', { id:'purchased-img-'+o.id, type:'file', accept:'image/*', style:{display:'none'}, onChange:handleStockImgReplace })
+                              ),
+                              h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:3,width:'100%'} },
+                                h('div', {
+                                  style:{width:90,height:90,borderRadius:8,border:'1px dashed var(--border)',background:'var(--surface)',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',cursor:'pointer',overflow:'hidden',position:'relative'},
+                                  className:'img-box-animated',
+                                  title: draft.qr_link_url ? 'View QR image' : 'Upload QR Link image',
+                                  onClick: draft.qr_link_url ? (e=>{ e.stopPropagation(); setQrLightbox({url:draft.qr_link_url,id:o.id}); }) : (()=>document.getElementById('purchased-qr-'+o.id)?.click())
+                                },
+                                  draft.qr_link_url
+                                    ? h('img', { src:draft.qr_link_url, style:{width:'100%',height:'100%',objectFit:'contain',display:'block',cursor:'zoom-in'} })
+                                    : h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,pointerEvents:'none'} },
+                                        h('svg', { xmlns:'http://www.w3.org/2000/svg', width:20, height:20, viewBox:'0 0 24 24', fill:'none', stroke:'var(--muted)', strokeWidth:1.5, strokeLinecap:'round', strokeLinejoin:'round' },
+                                          h('rect',{x:'3',y:'3',width:'7',height:'7',rx:'1'}),
+                                          h('rect',{x:'14',y:'3',width:'7',height:'7',rx:'1'}),
+                                          h('rect',{x:'3',y:'14',width:'7',height:'7',rx:'1'}),
+                                          h('rect',{x:'14',y:'14',width:'3',height:'3',rx:'0.5'}),
+                                          h('rect',{x:'19',y:'14',width:'2',height:'2',rx:'0.5'}),
+                                          h('rect',{x:'14',y:'19',width:'2',height:'2',rx:'0.5'}),
+                                          h('rect',{x:'18',y:'18',width:'3',height:'3',rx:'0.5'})
+                                        ),
+                                        h('span', { style:{fontSize:9,color:'var(--muted)',textAlign:'center',lineHeight:1.2,marginTop:2} }, 'QR Link')
+                                      ),
+                                  h('input', { id:'purchased-qr-'+o.id, type:'file', accept:'image/*', style:{display:'none'},
+                                    onChange: e => {
+                                      const file = e.target.files?.[0];
+                                      if (!file) return;
+                                      const reader = new FileReader();
+                                      reader.onload = ev => { setQrCropStockTarget(true); setQrOriginalSrc(ev.target.result); setQrSavedCrop(null); setQrCropSrc(ev.target.result); };
+                                      reader.readAsDataURL(file);
+                                      e.target.value = '';
+                                    }
+                                  })
+                                ),
+                              )
+                            ),
+                            h('div', { style:{display:'flex',flexDirection:'column',gap:10,minWidth:0} },
+                              h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10} },
+                                h('div', null,
+                                  lbl('Stock Qty'),
+                                  h('div', { style:{display:'flex',alignItems:'center',gap:6} },
+                                    h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:Math.max(0,(draft.stock_count||0)-1)});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '\u2212'),
+                                    h('span', { style:{minWidth:24,textAlign:'center',fontSize:13,fontWeight:700,color:'var(--text)',userSelect:'none'} }, draft.stock_count),
+                                    h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:(draft.stock_count||0)+1});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '+')
+                                  )
+                                ),
+                                h('div', null,
+                                  lbl('ea. Price'),
+                                  h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'(USD)', style:{padding:'5px 8px',fontSize:13}, value:draft.estimated_price||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({estimated_price:parseFloat(e.target.value)||0}) })
+                                )
+                              ),
+                              h('div', { style:{minWidth:0} },
+                                lbl('Supplier'),
+                                (()=>{
+                                  const sSupOpen = draft._supDropOpen;
+                                  const selSup = suppliers.find(s=>s.name===draft.supplier);
+                                  return h('div', { style:{position:'relative',minWidth:0} },
+                                    sSupOpen && h('div', { style:{position:'fixed',inset:0,zIndex:299}, onClick:e=>{ e.stopPropagation(); upd({_supDropOpen:false}); } }),
+                                    h('div', {
+                                      className:'cat-custom-trigger'+(sSupOpen?' open':''),
+                                      style:{padding:'5px 10px',fontSize:13,minHeight:32,background:'var(--surface)',borderColor:sSupOpen?'var(--amber)':undefined},
+                                      onClick:e=>{ e.stopPropagation(); upd({_supDropOpen:!sSupOpen}); }
+                                    },
+                                      selSup && (selSup.logoUrl || selSup.imageUrl)
+                                        ? h('img',{src:selSup.logoUrl || selSup.imageUrl,style:{width:18,height:18,borderRadius:4,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)',marginRight:6}})
+                                        : draft.supplier ? h('div',{style:{width:18,height:18,borderRadius:4,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'var(--muted)',marginRight:6}},'?') : null,
+                                      h('span',{style:{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:draft.supplier?'var(--text)':'var(--muted)',fontSize:13}}, draft.supplier||'')
+                                    ),
+                                    sSupOpen && h('div', {
+                                      style:{position:'absolute',top:'100%',left:0,right:0,background:'var(--surface)',border:'1px solid var(--amber)',borderTop:'none',borderBottomLeftRadius:8,borderBottomRightRadius:8,boxShadow:'0 8px 20px rgba(0,0,0,0.15)',zIndex:400,overflow:'hidden',maxHeight:180,overflowY:'auto',scrollbarWidth:'none'}
+                                    },
+                                      h('div',{className:'cat-option placeholder'+((!draft.supplier)?' selected':''),onClick:e=>{ e.stopPropagation(); upd({supplier:'',_supDropOpen:false}); }},'\u00a0'),
+                                      suppliers.map(s=>h('div',{
+                                        key:s.name,
+                                        className:'cat-option'+(draft.supplier===s.name?' selected':''),
+                                        style:{display:'flex',alignItems:'center',gap:8},
+                                        onClick:e=>{ e.stopPropagation(); upd({supplier:s.name,_supDropOpen:false}); }
+                                      },
+                                        s.logoUrl || s.imageUrl
+                                          ? h('img',{src:s.logoUrl || s.imageUrl,style:{width:20,height:20,borderRadius:4,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                                          : h('div',{style:{width:20,height:20,borderRadius:4,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,color:'var(--muted)'}},'?'),
+                                        h('span',{style:{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}},s.name)
+                                      ))
+                                    )
+                                  );
+                                })()
+                              ),
+                              h('div', null,
+                                lbl('Each Buying Price'),
+                                h('div', { style:{position:'relative'} },
+                                  !!(draft.product_price && draft.product_price !== '') && h('span', { style:{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',fontSize:12,fontWeight:600,color:'var(--text)',pointerEvents:'none',zIndex:1} }, '\u00a5'),
+                                  h('input', { className:'field-input field-input-animated', type:'number', min:0, step:'0.01', placeholder:'original \u00a5', style:{padding:'5px 8px',fontSize:13,...(!!(draft.product_price && draft.product_price !== '') ? {paddingLeft:20} : {})}, value:draft.product_price||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_price:e.target.value}) })
+                                )
+                              ),
+                              h('div', null,
+                                lbl('Combine Buying Price'),
+                                h('div', { onClick:e=>e.stopPropagation() }, h(CombinePriceSplit, { valueCny:draft.combine_price_cny, valueUsd:draft.combine_price, onChangeCny:v=>upd({combine_price_cny:v}), onChangeUsd:v=>upd({combine_price:v}) }))
+                              )
                             )
                           ),
-                          h('div', { style:{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'} },
-                            h('span', { style:{fontSize:9,fontWeight:700,color:'#166534',background:'#dcfce7',border:'1px solid #86efac',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'Ordered'),
-                            h('button', {
-                              className:'btn-ghost',
-                              style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap'},
-                              onClick:()=>{
-                                updateStock(o.id, o.qty);
-                                const next = purchaseOrders.filter(x => x.id !== o.id);
-                                setPurchaseOrders(next);
-                                localStorage.setItem('purchaseOrders', JSON.stringify(next));
-                              }
-                            }, '\u2713 Restock '+o.qty)
+                          h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10} },
+                            h('div', null,
+                              lbl('Type of product'),
+                              h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.product_type||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_type:e.target.value}) },
+                                h('option', { value:'' }, ''),
+                                productTypes.map(t=>h('option',{key:t,value:t},t))
+                              )
+                            ),
+                            h('div', null,
+                              lbl('Category'),
+                              h('select', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.category||'', onClick:e=>e.stopPropagation(), onChange:e=>upd({category:e.target.value}) },
+                                h('option', { value:'' }, ''),
+                                categories.map(c=>h('option',{key:c,value:c},c))
+                              )
+                            )
+                          ),
+                          h('div', { style:{marginBottom:10} },
+                            lbl('Product name'),
+                            h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, value:draft.product_name||'', placeholder:'Unnamed product', onClick:e=>e.stopPropagation(), onChange:e=>upd({product_name:e.target.value}) })
+                          ),
+                          h('div', { style:{marginBottom:10} },
+                            lbl('Tags'),
+                            h('input', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13}, placeholder:'e.g. wireless, portable', value:(draft.tags||[]).join(', '), onClick:e=>e.stopPropagation(),
+                              onChange: e => upd({ tags: e.target.value.split(',').map(t=>t.trim()).filter(Boolean) }) })
+                          ),
+                          h('div', { style:{marginBottom:14} },
+                            lbl('Description'),
+                            h('textarea', { className:'field-input field-input-animated', style:{padding:'5px 8px',fontSize:13,resize:'vertical',height:draft.description?64:32,lineHeight:1.5}, placeholder:'Product description\u2026', value:draft.description||'', onClick:e=>e.stopPropagation(),
+                              onChange: e => upd({ description: e.target.value }) })
                           )
                         )
                       );
@@ -6831,6 +7480,7 @@ function App() {
             h('p', { style:{fontSize:16,fontWeight:600,color:'var(--text)',marginBottom:6} }, 'In Store'),
             h('p', { style:{fontSize:13,color:'var(--muted)'} }, products.filter(p => lowStockOp==='lte' ? p.stock_count>lowStockN : p.stock_count>=lowStockN).length+' product'+(products.filter(p => lowStockOp==='lte' ? p.stock_count>lowStockN : p.stock_count>=lowStockN).length!==1?'s':'')+' are well stocked in store \u2014 in-store view coming soon.')
           )
+          ) // end reorder-content swipe wrapper
         )
       ),
       /* ── SUPPLIER MODAL ── */
@@ -8111,6 +8761,7 @@ function App() {
         )
       );
     })(),
+    h('div', { ...tabSwipeHandlers, style:{touchAction:'pan-y', minHeight:'calc(100vh - 100px)'} },
     h('div', { className:'upload-header', style:{display:'flex',alignItems:'center',gap:8,marginBottom:12,position:'sticky',top:0,zIndex:100,background:'var(--bg)',padding:'8px 0',margin:'0 0 12px'} },
       h('h2', { style:{fontSize:15,fontWeight:500,margin:0,flexShrink:0} }, 'Add new'),
       h('div', { style:{display:'flex',gap:2,background:'var(--bg)',borderRadius:8,padding:3,border:'1px solid var(--border)'} },
@@ -8151,208 +8802,19 @@ function App() {
         )
       )
     ),
-    uploadTab === 'product' && error && h('div', { style:{background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#991b1b'} }, error),
-    uploadTab === 'supplier' && h('div', { style:{display:'flex',flexDirection:'column',gap:12} },
-      h('div', { style:{display:'flex',gap:20,flex:'0 0 auto',background:'var(--surface)',borderRadius:12,padding:16,border:'1px solid var(--border)'} },
-
-        /* LEFT — image upload */
-        h('div', { style:{display:'flex',flexDirection:'column',gap:8,flexShrink:0,width:100,alignSelf:'flex-start'} },
-
-          /* Supplier Logo (smaller, 1:1) */
-          h('div', { style:{display:'flex',flexDirection:'column',gap:4} },
-            h('div', { className:'sup-img-box', style:{
-              width:100, height:100,
-              border: supplierLogoDragOver ? '2px dashed #BA7517' : '1px solid var(--border)', borderRadius:10,
-              background: supplierLogoDragOver ? (darkMode?'#2a1f0a':'#fffbeb') : 'var(--bg)',
-              display:'flex', flexDirection:'column',
-              alignItems:'center', justifyContent:'center', gap:6,
-              overflow:'hidden', position:'relative', cursor:'pointer',
-              transition:'border 0.15s, background 0.15s',
-            },
-              onClick: () => supplierForm.logoUrl ? setSupplierLogoPreview(true) : document.getElementById('supplier-logo-input').click(),
-              onDragOver: e => { e.preventDefault(); setSupplierLogoDragOver(true); },
-              onDragLeave: () => setSupplierLogoDragOver(false),
-              onDrop: e => {
-                e.preventDefault(); setSupplierLogoDragOver(false);
-                const file = e.dataTransfer.files?.[0];
-                if (!file || !file.type.startsWith('image/')) return;
-                const r = new FileReader();
-                r.onload = ev => { setSupplierLogoOriginalSrc(ev.target.result); setSupplierLogoSavedCrop(null); setSupplierLogoCropSrc(ev.target.result); setShowSupplierLogoCropModal(true); };
-                r.readAsDataURL(file);
-              }
-            },
-              supplierForm.logoUrl
-                ? h('img', { src:supplierForm.logoUrl, style:{width:'100%',height:'100%',objectFit:'contain',position:'absolute',inset:0,padding:6,boxSizing:'border-box'} })
-                : h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:4,textAlign:'center'} },
-                    h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke: supplierLogoDragOver ? '#BA7517' : 'var(--muted)',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
-                      h('rect',{x:3,y:3,width:18,height:18,rx:2}),
-                      h('circle',{cx:8.5,cy:8.5,r:1.5}),
-                      h('path',{d:'M21 15l-5-5L5 21'})
-                    ),
-                    h('span',{style:{fontSize:10,color: supplierLogoDragOver ? '#BA7517' : 'var(--muted)',fontWeight:500}}, supplierLogoDragOver ? 'Drop logo' : 'Supplier logo')
-                  ),
-              h('input',{id:'supplier-logo-input',type:'file',accept:'image/*',style:{display:'none'},onChange:e=>{
-                const file=e.target.files[0]; if(!file) return;
-                const r=new FileReader();
-                r.onload=ev=>{ setSupplierLogoOriginalSrc(ev.target.result); setSupplierLogoSavedCrop(null); setSupplierLogoCropSrc(ev.target.result); setShowSupplierLogoCropModal(true); e.target.value=''; };
-                r.readAsDataURL(file);
-              }})
-            )
-          ),
-
-          /* Link to supplier (larger, 1:1) */
-          h('div', { style:{display:'flex',flexDirection:'column',gap:4,alignItems:'center'} },
-            h('div', { className:'sup-img-box', style:{
-              width:100, height:100,
-              border: supplierDragOver ? '2px dashed #BA7517' : '1px solid var(--border)', borderRadius:10,
-              background: supplierDragOver ? (darkMode?'#2a1f0a':'#fffbeb') : 'var(--bg)',
-              display:'flex', flexDirection:'column',
-              alignItems:'center', justifyContent:'center', gap:10,
-              overflow:'hidden', position:'relative', cursor:'pointer',
-              transition:'border 0.15s, background 0.15s',
-            },
-              onClick:()=> supplierForm.imageUrl ? setSupplierImgPreview(true) : document.getElementById('supplier-img-input').click(),
-              onDragOver: e => { e.preventDefault(); setSupplierDragOver(true); },
-              onDragLeave: () => setSupplierDragOver(false),
-              onDrop: e => {
-                e.preventDefault(); setSupplierDragOver(false);
-                const file = e.dataTransfer.files?.[0];
-                if (!file || !file.type.startsWith('image/')) return;
-                const r = new FileReader();
-                r.onload = ev => { setSupplierOriginalSrc(ev.target.result); setSupplierSavedCrop(null); setSupplierCropSrc(ev.target.result); setShowSupplierCropModal(true); };
-                r.readAsDataURL(file);
-              }
-            },
-              supplierForm.imageUrl
-                ? h('img', { src:supplierForm.imageUrl, style:{width:'100%',height:'100%',objectFit:'cover',position:'absolute',inset:0,cursor:'zoom-in'} })
-                : h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8,padding:12,textAlign:'center'} },
-                    h('span',{style:{fontSize:11,color: supplierDragOver ? '#BA7517' : 'var(--muted)',fontWeight:500}}, supplierDragOver ? 'Drop to upload' : 'Link to supplier'),
-                    h('span',{style:{fontSize:10,color:'var(--muted)',opacity:0.7,textAlign:'center',whiteSpace:'nowrap'}},'drop image here')
-                  ),
-              h('input',{id:'supplier-img-input',type:'file',accept:'image/*',style:{display:'none'},onChange:e=>{
-                const file=e.target.files[0]; if(!file) return;
-                const r=new FileReader();
-                r.onload=ev=>{ setSupplierOriginalSrc(ev.target.result); setSupplierSavedCrop(null); setSupplierCropSrc(ev.target.result); setShowSupplierCropModal(true); e.target.value=''; };
-                r.readAsDataURL(file);
-              }})
-            ),
-            h('a', { href:'#', style:{fontSize:10,color:'var(--muted)',textAlign:'center',textDecoration:'underline',opacity:0.7,transition:'color 0.2s, opacity 0.2s, text-shadow 0.2s'}, onMouseEnter:e=>{ e.currentTarget.style.color='var(--amber)'; e.currentTarget.style.opacity='1'; e.currentTarget.style.textShadow='0 0 8px rgba(186,117,23,0.45)'; }, onMouseLeave:e=>{ e.currentTarget.style.color='var(--muted)'; e.currentTarget.style.opacity='0.7'; e.currentTarget.style.textShadow='none'; }, onClick:e=>{ e.preventDefault(); e.stopPropagation(); setShowSupplierLinkGuide(true); } }, 'How to get Supplier Link'),
-          ),
-        ),
-
-        /* RIGHT — fields */
-        h('div', { style:{display:'flex',flexDirection:'column',gap:14,flex:1,minWidth:0} },
-
-          /* Supplier Name */
-          (() => {
-            const trimmedNewName = (supplierForm.name||'').trim();
-            const isDupName = !!trimmedNewName && suppliers.some(sup => (sup.name||'').trim().toLowerCase() === trimmedNewName.toLowerCase());
-            return h('div', { style:{display:'flex',flexDirection:'column',gap:5} },
-              h('label', { style:{fontSize:13,fontWeight:600,color:'var(--text)'} },
-                'Supplier Name', h('span',{style:{color:'#ef4444',marginLeft:2}},'*')
-              ),
-              h('input', {
-                type:'text', placeholder:'',
-                value: supplierForm.name,
-                onChange: e=>setSupplierForm(prev=>({...prev,name:e.target.value})),
-                className:'sup-field-input',
-                style:{fontSize:13,padding:'9px 12px',borderRadius:8,border:'1px solid '+(isDupName?'#ef4444':'var(--border)'),background:'var(--bg)',color:'var(--text)',outline:'none',fontFamily:'var(--font)',width:'100%',boxSizing:'border-box'}
-              }),
-              isDupName && h('span',{style:{fontSize:10,color:'#ef4444',marginTop:2}}, 'A supplier with this name already exists.')
-            );
-          })(),
-
-          /* Application */
-          h('div', { style:{display:'flex',flexDirection:'column',gap:5} },
-            h('label', { style:{fontSize:13,fontWeight:600,color:'var(--text)',display:'flex',alignItems:'baseline',gap:6} },
-              'Application',
-              h('span',{className:'wtp-label',style:{fontSize:11,fontWeight:400,color:'var(--muted)'}},'(where to purchase)')
-            ),
-            h('div', { style:{display:'flex',gap:8,alignItems:'center'} },
-              h('select', {
-                value: supplierForm.application || '',
-                onChange: e => setSupplierForm(prev => ({...prev, application: e.target.value})),
-                className:'sup-field-input',
-                style:{flex:1,fontSize:13,padding:'9px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color: supplierForm.application ? 'var(--text)' : 'var(--muted)',outline:'none',fontFamily:'var(--font)',cursor:'pointer'}
-              },
-                h('option', { value:'' }, ''),
-                applications.map((o,oi) => h('option', { key:oi, value:o }, o))
-              ),
-              h('button', {
-                title: 'Add application',
-                onClick: () => { setCatMgrInitialTab('applications'); setShowCatMgr(true); },
-                className:'sup-add-btn',
-                style:{width:36,height:38,borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--muted)',cursor:'pointer',fontSize:20,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontWeight:300}
-              }, '+')
-            )
-          ),
-
-          /* Supplier Address */
-          h('div', { style:{display:'flex',flexDirection:'column',gap:5} },
-            h('label', { style:{fontSize:13,fontWeight:600,color:'var(--text)'} }, 'Supplier Address'),
-            h('input', {
-              type:'text', placeholder:'',
-              value: supplierForm.address,
-              onChange: e=>setSupplierForm(prev=>({...prev,address:e.target.value})),
-              className:'sup-field-input',
-              style:{fontSize:13,padding:'9px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',outline:'none',fontFamily:'var(--font)',width:'100%',boxSizing:'border-box'}
-            }),
-            supplierForm.address && h('span',{style:{fontSize:10,color:'var(--muted)',marginTop:2}},'Distance from warehouse will be shown here')
-          ),
-
-          /* Action buttons */
-          h('div', { style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:4} },
-            h('button', {
-              onClick:()=>{ setSupplierForm({name:'',application:'',address:'',imageUrl:'',logoUrl:'',link:'',imageOriginalUrl:'',imageCrop:null,logoOriginalUrl:'',logoCrop:null}); setSupplierOriginalSrc(null); setSupplierSavedCrop(null); setSupplierLogoOriginalSrc(null); setSupplierLogoSavedCrop(null); },
-              className:'sup-cancel-btn',
-              style:{fontSize:12,padding:'9px 20px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--muted)',cursor:'pointer',fontFamily:'var(--font)',fontWeight:500}
-            }, 'Cancel'),
-            (() => {
-              const nameEmpty = !supplierForm.name?.trim();
-              const isDuplicate = !nameEmpty && suppliers.some(sup => (sup.name||'').trim().toLowerCase() === supplierForm.name.trim().toLowerCase());
-              const blocked = nameEmpty || isDuplicate;
-              return h('button', {
-                onClick:()=>{
-                  if(blocked) return;
-                  const entry={...supplierForm,addedAt:new Date().toISOString()};
-                  const next=[...suppliers,entry];
-                  setSuppliers(next); localStorage.setItem('suppliers',JSON.stringify(next));
-                  setPersistedSupplier(entry.name);
-                  setPending(p => p ? {...p, supplier: entry.name} : p);
-                  setJustAddedSupplier(entry.name);
-                  setSupplierForm({name:'',application:'',address:'',imageUrl:'',logoUrl:'',link:'',imageOriginalUrl:'',imageCrop:null,logoOriginalUrl:'',logoCrop:null});
-                  setSupplierOriginalSrc(null); setSupplierSavedCrop(null); setSupplierLogoOriginalSrc(null); setSupplierLogoSavedCrop(null);
-                  setUploadTab('product');
-                },
-                className: 'btn-amber sup-save-btn',
-                disabled: blocked,
-                style: blocked
-                  ? {fontSize:12,padding:'9px 20px',background:'rgba(var(--amber-rgb), 0.45)',color:'var(--muted)',cursor:'not-allowed'}
-                  : {fontSize:12,padding:'9px 20px'}
-              }, 'Save Supplier');
-            })()
-          )
-        )
-      ),
-
-      /* ── SAVED SUPPLIERS LIST ── */
-      h('div', { style:{display:'flex',flexDirection:'column',gap:6} },
-        h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2} },
-          h('span', { style:{fontSize:12,fontWeight:600,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.05em'} },
-            'Suppliers',
-            h('span', { style:{marginLeft:6,fontSize:12,fontWeight:700,color:'var(--amber)',background:'var(--amber-light)',borderRadius:20,padding:'1px 8px'} }, suppliers.length)
-          ),
-          h('p', { style:{fontSize:11,color:'var(--subtle)',margin:0} }, 'Hold 1s to delete')
-        ),
-        h('div', { style:{display:'flex',flexDirection:'column',gap:6,flex:1} },
-          [...suppliers].reverse().map((s,i) => {
-            const originalIndex = suppliers.length - 1 - i;
-            return h(SupplierSwipeRow, { key: s.name+'-'+originalIndex, s, i:originalIndex, suppliers, setSuppliers, applications, setCatMgrInitialTab, setShowCatMgr, onRename: handleSupplierRename, onDelete: handleSupplierDeleted, forceExpand: s.name === highlightSupplierName, highlighted: s.name === highlightSupplierName });
-          })
-        )
-      )
-    ),
-    uploadTab === 'product' && aiEnabled && showApiKey && h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',marginBottom:16} },
+    (function(){
+      const tabTransitionActive = prevUploadTab !== null && prevUploadTab !== uploadTab;
+      const productIsCurrent = uploadTab === 'product';
+      const productIsLeaving = tabTransitionActive && prevUploadTab === 'product';
+      const supplierIsCurrent = uploadTab === 'supplier';
+      const supplierIsLeaving = tabTransitionActive && prevUploadTab === 'supplier';
+      return h('div', { style:{position:'relative', overflow: tabTransitionActive ? 'hidden' : 'visible'} },
+    (productIsCurrent || productIsLeaving) && h('div', { key:'product-panel-'+(productIsCurrent?'current':'leaving'), style: productIsLeaving
+      ? { position:'absolute', top:0, left:0, width:'100%', zIndex:1, pointerEvents:'none', animation:(tabSlideDir===1?'tabPushOutToLeft':'tabPushOutToRight')+' 0.28s ease forwards' }
+      : { position:'relative', zIndex:2, animation: tabTransitionActive ? (tabSlideDir===1?'tabPushInFromRight':'tabPushInFromLeft')+' 0.28s ease' : undefined }
+    },
+    error && h('div', { style:{background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:8,padding:'10px 14px',marginBottom:16,fontSize:13,color:'#991b1b'} }, error),
+    aiEnabled && showApiKey && h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',marginBottom:16} },
       h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10} },
         h('span', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.05em'} }, '🔑 Gemini API Keys'),
         h('button', { className:'btn-ghost', style:{fontSize:11,padding:'4px 10px',flexShrink:0}, onClick:()=>setShowApiKey(false) }, '✓ Done')
@@ -8384,7 +8846,7 @@ function App() {
         onClick:() => saveApiKeys([...apiKeys, ''])
       }, '＋ Add another key')
     ),
-    uploadTab === 'product' && pending && h('div', { className:'card upload-card', style:{padding:20, position:'relative'} },
+    pending && h('div', { className:'card upload-card', style:{padding:20, position:'relative'} },
       h('div', { className:'review-grid', style:{display:'grid',gridTemplateColumns:'200px minmax(0,1fr)',gap:20,alignItems:'start'} },
         /* ── LEFT COLUMN: photo + stock + price ── */
         h('div', { className:'review-grid-left', style:{display:'flex',flexDirection:'column',gap:14,position:'relative'} },
@@ -8733,7 +9195,7 @@ function App() {
         )
       )
     ),
-    uploadTab === 'product' && queue.length>0 && h('div', { style:{marginTop:16,paddingBottom:22} },
+    queue.length>0 && h('div', { style:{marginTop:16,paddingBottom:22} },
       h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8,position:'sticky',top:48,zIndex:90,background:'var(--bg)',padding:'8px 0'} },
         h('div', { style:{display:'flex',alignItems:'center',gap:8} },
           h('p', { style:{fontSize:12,fontWeight:600,color:'var(--muted)',margin:0,textTransform:'uppercase',letterSpacing:'0.05em'} }, queue.length+' Product'+(queue.length!==1?'s':'')+' — '+queue.reduce((s,q)=>s+(q.stock_count||1),0)+' Unit'+(queue.reduce((s,q)=>s+(q.stock_count||1),0)!==1?'s':'')),
@@ -9843,6 +10305,215 @@ function App() {
         })
       )
     )
+    ), // end product panel
+    (supplierIsCurrent || supplierIsLeaving) && h('div', { key:'supplier-panel-'+(supplierIsCurrent?'current':'leaving'), style: supplierIsLeaving
+      ? { position:'absolute', top:0, left:0, width:'100%', zIndex:1, pointerEvents:'none', animation:(tabSlideDir===1?'tabPushOutToLeft':'tabPushOutToRight')+' 0.28s ease forwards' }
+      : { position:'relative', zIndex:2, animation: tabTransitionActive ? (tabSlideDir===1?'tabPushInFromRight':'tabPushInFromLeft')+' 0.28s ease' : undefined }
+    },
+    h('div', { style:{display:'flex',flexDirection:'column',gap:12} },
+      h('div', { style:{display:'flex',gap:20,flex:'0 0 auto',background:'var(--surface)',borderRadius:12,padding:16,border:'1px solid var(--border)'} },
+
+        /* LEFT — image upload */
+        h('div', { style:{display:'flex',flexDirection:'column',gap:8,flexShrink:0,width:100,alignSelf:'flex-start'} },
+
+          /* Supplier Logo (smaller, 1:1) */
+          h('div', { style:{display:'flex',flexDirection:'column',gap:4} },
+            h('div', { className:'sup-img-box', style:{
+              width:100, height:100,
+              border: supplierLogoDragOver ? '2px dashed #BA7517' : '1px solid var(--border)', borderRadius:10,
+              background: supplierLogoDragOver ? (darkMode?'#2a1f0a':'#fffbeb') : 'var(--bg)',
+              display:'flex', flexDirection:'column',
+              alignItems:'center', justifyContent:'center', gap:6,
+              overflow:'hidden', position:'relative', cursor:'pointer',
+              transition:'border 0.15s, background 0.15s',
+            },
+              onClick: () => supplierForm.logoUrl ? setSupplierLogoPreview(true) : document.getElementById('supplier-logo-input').click(),
+              onDragOver: e => { e.preventDefault(); setSupplierLogoDragOver(true); },
+              onDragLeave: () => setSupplierLogoDragOver(false),
+              onDrop: e => {
+                e.preventDefault(); setSupplierLogoDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (!file || !file.type.startsWith('image/')) return;
+                const r = new FileReader();
+                r.onload = ev => { setSupplierLogoOriginalSrc(ev.target.result); setSupplierLogoSavedCrop(null); setSupplierLogoCropSrc(ev.target.result); setShowSupplierLogoCropModal(true); };
+                r.readAsDataURL(file);
+              }
+            },
+              supplierForm.logoUrl
+                ? h('img', { src:supplierForm.logoUrl, style:{width:'100%',height:'100%',objectFit:'contain',position:'absolute',inset:0,padding:6,boxSizing:'border-box'} })
+                : h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:4,textAlign:'center'} },
+                    h('svg',{width:20,height:20,viewBox:'0 0 24 24',fill:'none',stroke: supplierLogoDragOver ? '#BA7517' : 'var(--muted)',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
+                      h('rect',{x:3,y:3,width:18,height:18,rx:2}),
+                      h('circle',{cx:8.5,cy:8.5,r:1.5}),
+                      h('path',{d:'M21 15l-5-5L5 21'})
+                    ),
+                    h('span',{style:{fontSize:10,color: supplierLogoDragOver ? '#BA7517' : 'var(--muted)',fontWeight:500}}, supplierLogoDragOver ? 'Drop logo' : 'Supplier logo')
+                  ),
+              h('input',{id:'supplier-logo-input',type:'file',accept:'image/*',style:{display:'none'},onChange:e=>{
+                const file=e.target.files[0]; if(!file) return;
+                const r=new FileReader();
+                r.onload=ev=>{ setSupplierLogoOriginalSrc(ev.target.result); setSupplierLogoSavedCrop(null); setSupplierLogoCropSrc(ev.target.result); setShowSupplierLogoCropModal(true); e.target.value=''; };
+                r.readAsDataURL(file);
+              }})
+            )
+          ),
+
+          /* Link to supplier (larger, 1:1) */
+          h('div', { style:{display:'flex',flexDirection:'column',gap:4,alignItems:'center'} },
+            h('div', { className:'sup-img-box', style:{
+              width:100, height:100,
+              border: supplierDragOver ? '2px dashed #BA7517' : '1px solid var(--border)', borderRadius:10,
+              background: supplierDragOver ? (darkMode?'#2a1f0a':'#fffbeb') : 'var(--bg)',
+              display:'flex', flexDirection:'column',
+              alignItems:'center', justifyContent:'center', gap:10,
+              overflow:'hidden', position:'relative', cursor:'pointer',
+              transition:'border 0.15s, background 0.15s',
+            },
+              onClick:()=> supplierForm.imageUrl ? setSupplierImgPreview(true) : document.getElementById('supplier-img-input').click(),
+              onDragOver: e => { e.preventDefault(); setSupplierDragOver(true); },
+              onDragLeave: () => setSupplierDragOver(false),
+              onDrop: e => {
+                e.preventDefault(); setSupplierDragOver(false);
+                const file = e.dataTransfer.files?.[0];
+                if (!file || !file.type.startsWith('image/')) return;
+                const r = new FileReader();
+                r.onload = ev => { setSupplierOriginalSrc(ev.target.result); setSupplierSavedCrop(null); setSupplierCropSrc(ev.target.result); setShowSupplierCropModal(true); };
+                r.readAsDataURL(file);
+              }
+            },
+              supplierForm.imageUrl
+                ? h('img', { src:supplierForm.imageUrl, style:{width:'100%',height:'100%',objectFit:'cover',position:'absolute',inset:0,cursor:'zoom-in'} })
+                : h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8,padding:12,textAlign:'center'} },
+                    h('span',{style:{fontSize:11,color: supplierDragOver ? '#BA7517' : 'var(--muted)',fontWeight:500}}, supplierDragOver ? 'Drop to upload' : 'Link to supplier'),
+                    h('span',{style:{fontSize:10,color:'var(--muted)',opacity:0.7,textAlign:'center',whiteSpace:'nowrap'}},'drop image here')
+                  ),
+              h('input',{id:'supplier-img-input',type:'file',accept:'image/*',style:{display:'none'},onChange:e=>{
+                const file=e.target.files[0]; if(!file) return;
+                const r=new FileReader();
+                r.onload=ev=>{ setSupplierOriginalSrc(ev.target.result); setSupplierSavedCrop(null); setSupplierCropSrc(ev.target.result); setShowSupplierCropModal(true); e.target.value=''; };
+                r.readAsDataURL(file);
+              }})
+            ),
+            h('a', { href:'#', style:{fontSize:10,color:'var(--muted)',textAlign:'center',textDecoration:'underline',opacity:0.7,transition:'color 0.2s, opacity 0.2s, text-shadow 0.2s'}, onMouseEnter:e=>{ e.currentTarget.style.color='var(--amber)'; e.currentTarget.style.opacity='1'; e.currentTarget.style.textShadow='0 0 8px rgba(186,117,23,0.45)'; }, onMouseLeave:e=>{ e.currentTarget.style.color='var(--muted)'; e.currentTarget.style.opacity='0.7'; e.currentTarget.style.textShadow='none'; }, onClick:e=>{ e.preventDefault(); e.stopPropagation(); setShowSupplierLinkGuide(true); } }, 'How to get Supplier Link'),
+          ),
+        ),
+
+        /* RIGHT — fields */
+        h('div', { style:{display:'flex',flexDirection:'column',gap:14,flex:1,minWidth:0} },
+
+          /* Supplier Name */
+          (() => {
+            const trimmedNewName = (supplierForm.name||'').trim();
+            const isDupName = !!trimmedNewName && suppliers.some(sup => (sup.name||'').trim().toLowerCase() === trimmedNewName.toLowerCase());
+            return h('div', { style:{display:'flex',flexDirection:'column',gap:5} },
+              h('label', { style:{fontSize:13,fontWeight:600,color:'var(--text)'} },
+                'Supplier Name', h('span',{style:{color:'#ef4444',marginLeft:2}},'*')
+              ),
+              h('input', {
+                type:'text', placeholder:'',
+                value: supplierForm.name,
+                onChange: e=>setSupplierForm(prev=>({...prev,name:e.target.value})),
+                className:'sup-field-input',
+                style:{fontSize:13,padding:'9px 12px',borderRadius:8,border:'1px solid '+(isDupName?'#ef4444':'var(--border)'),background:'var(--bg)',color:'var(--text)',outline:'none',fontFamily:'var(--font)',width:'100%',boxSizing:'border-box'}
+              }),
+              isDupName && h('span',{style:{fontSize:10,color:'#ef4444',marginTop:2}}, 'A supplier with this name already exists.')
+            );
+          })(),
+
+          /* Application */
+          h('div', { style:{display:'flex',flexDirection:'column',gap:5} },
+            h('label', { style:{fontSize:13,fontWeight:600,color:'var(--text)',display:'flex',alignItems:'baseline',gap:6} },
+              'Application',
+              h('span',{className:'wtp-label',style:{fontSize:11,fontWeight:400,color:'var(--muted)'}},'(where to purchase)')
+            ),
+            h('div', { style:{display:'flex',gap:8,alignItems:'center'} },
+              h('select', {
+                value: supplierForm.application || '',
+                onChange: e => setSupplierForm(prev => ({...prev, application: e.target.value})),
+                className:'sup-field-input',
+                style:{flex:1,fontSize:13,padding:'9px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color: supplierForm.application ? 'var(--text)' : 'var(--muted)',outline:'none',fontFamily:'var(--font)',cursor:'pointer'}
+              },
+                h('option', { value:'' }, ''),
+                applications.map((o,oi) => h('option', { key:oi, value:o }, o))
+              ),
+              h('button', {
+                title: 'Add application',
+                onClick: () => { setCatMgrInitialTab('applications'); setShowCatMgr(true); },
+                className:'sup-add-btn',
+                style:{width:36,height:38,borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--muted)',cursor:'pointer',fontSize:20,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontWeight:300}
+              }, '+')
+            )
+          ),
+
+          /* Supplier Address */
+          h('div', { style:{display:'flex',flexDirection:'column',gap:5} },
+            h('label', { style:{fontSize:13,fontWeight:600,color:'var(--text)'} }, 'Supplier Address'),
+            h('input', {
+              type:'text', placeholder:'',
+              value: supplierForm.address,
+              onChange: e=>setSupplierForm(prev=>({...prev,address:e.target.value})),
+              className:'sup-field-input',
+              style:{fontSize:13,padding:'9px 12px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--text)',outline:'none',fontFamily:'var(--font)',width:'100%',boxSizing:'border-box'}
+            }),
+            supplierForm.address && h('span',{style:{fontSize:10,color:'var(--muted)',marginTop:2}},'Distance from warehouse will be shown here')
+          ),
+
+          /* Action buttons */
+          h('div', { style:{display:'flex',gap:8,justifyContent:'flex-end',marginTop:4} },
+            h('button', {
+              onClick:()=>{ setSupplierForm({name:'',application:'',address:'',imageUrl:'',logoUrl:'',link:'',imageOriginalUrl:'',imageCrop:null,logoOriginalUrl:'',logoCrop:null}); setSupplierOriginalSrc(null); setSupplierSavedCrop(null); setSupplierLogoOriginalSrc(null); setSupplierLogoSavedCrop(null); },
+              className:'sup-cancel-btn',
+              style:{fontSize:12,padding:'9px 20px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--muted)',cursor:'pointer',fontFamily:'var(--font)',fontWeight:500}
+            }, 'Cancel'),
+            (() => {
+              const nameEmpty = !supplierForm.name?.trim();
+              const isDuplicate = !nameEmpty && suppliers.some(sup => (sup.name||'').trim().toLowerCase() === supplierForm.name.trim().toLowerCase());
+              const blocked = nameEmpty || isDuplicate;
+              return h('button', {
+                onClick:()=>{
+                  if(blocked) return;
+                  const entry={...supplierForm,addedAt:new Date().toISOString()};
+                  const next=[...suppliers,entry];
+                  setSuppliers(next); localStorage.setItem('suppliers',JSON.stringify(next));
+                  setPersistedSupplier(entry.name);
+                  setPending(p => p ? {...p, supplier: entry.name} : p);
+                  setJustAddedSupplier(entry.name);
+                  setSupplierForm({name:'',application:'',address:'',imageUrl:'',logoUrl:'',link:'',imageOriginalUrl:'',imageCrop:null,logoOriginalUrl:'',logoCrop:null});
+                  setSupplierOriginalSrc(null); setSupplierSavedCrop(null); setSupplierLogoOriginalSrc(null); setSupplierLogoSavedCrop(null);
+                  setUploadTab('product');
+                },
+                className: 'btn-amber sup-save-btn',
+                disabled: blocked,
+                style: blocked
+                  ? {fontSize:12,padding:'9px 20px',background:'rgba(var(--amber-rgb), 0.45)',color:'var(--muted)',cursor:'not-allowed'}
+                  : {fontSize:12,padding:'9px 20px'}
+              }, 'Save Supplier');
+            })()
+          )
+        )
+      ),
+
+      /* ── SAVED SUPPLIERS LIST ── */
+      h('div', { style:{display:'flex',flexDirection:'column',gap:6} },
+        h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:2} },
+          h('span', { style:{fontSize:12,fontWeight:600,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.05em'} },
+            'Suppliers',
+            h('span', { style:{marginLeft:6,fontSize:12,fontWeight:700,color:'var(--amber)',background:'var(--amber-light)',borderRadius:20,padding:'1px 8px'} }, suppliers.length)
+          ),
+          h('p', { style:{fontSize:11,color:'var(--subtle)',margin:0} }, 'Hold 1s to delete')
+        ),
+        h('div', { style:{display:'flex',flexDirection:'column',gap:6,flex:1} },
+          [...suppliers].reverse().map((s,i) => {
+            const originalIndex = suppliers.length - 1 - i;
+            return h(SupplierSwipeRow, { key: s.name+'-'+originalIndex, s, i:originalIndex, suppliers, setSuppliers, applications, setCatMgrInitialTab, setShowCatMgr, onRename: handleSupplierRename, onDelete: handleSupplierDeleted, forceExpand: s.name === highlightSupplierName, highlighted: s.name === highlightSupplierName });
+          })
+        )
+      )
+    ),
+    ) // end supplier panel
+      ); // end inner relative div
+    })() // end IIFE for tab content
+    ) // end tab-swipe wrapper
   ))); // end upload
 
   /* ── REVIEW ── */
