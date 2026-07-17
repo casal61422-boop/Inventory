@@ -4633,6 +4633,14 @@ function App() {
     localStorage.setItem('stockTab', v);
   };
   const [orderQtys, setOrderQtys]   = useState({});
+  const [reorderInfo, setReorderInfoRaw] = useState(() => { try { return JSON.parse(localStorage.getItem('reorderInfo')||'{}'); } catch(e) { return {}; } });
+  const setReorderInfo = updater => setReorderInfoRaw(prev => {
+    const next = typeof updater === 'function' ? updater(prev) : updater;
+    try { localStorage.setItem('reorderInfo', JSON.stringify(next)); } catch(e) {}
+    return next;
+  });
+  const mergeReorderInfo = base => ({ ...base, ...(reorderInfo[base.id] || {}) });
+  const reorderAutoSaveTimers = useRef({});
   const [expandedQtyId, setExpandedQtyId] = useState(null);
   const [expandedStockId, setExpandedStockId] = useState(null);
   const [stockEditDraft, setStockEditDraft] = useState(null);
@@ -4710,7 +4718,7 @@ function App() {
     setReorderSubTab(name);
   };
   const reorderSwipeRef = useRef({ active:false, startX:0, startY:0, dx:0, dy:0 });
-  const REORDER_SWIPE_THRESHOLD = 60;
+  const REORDER_SWIPE_THRESHOLD = 45;
   const reorderSwipeStart = (x, y) => { reorderSwipeRef.current = { active:true, startX:x, startY:y, dx:0, dy:0 }; };
   const reorderSwipeMove = (x, y) => { const s = reorderSwipeRef.current; if (!s.active) return; s.dx = x - s.startX; s.dy = y - s.startY; };
   const reorderSwipeEnd = () => {
@@ -4723,11 +4731,21 @@ function App() {
   };
   const reorderWheelCooldownRef = useRef(0);
   const REORDER_WHEEL_THRESHOLD = 40;
-  const reorderSwipeHandlers = {
+  const reorderTouchHandlers = {
     onTouchStart: e => { const t = e.touches[0]; reorderSwipeStart(t.clientX, t.clientY); },
     onTouchMove: e => { const t = e.touches[0]; reorderSwipeMove(t.clientX, t.clientY); },
     onTouchEnd: () => reorderSwipeEnd(),
     onMouseDown: e => { reorderSwipeStart(e.clientX, e.clientY); const move = ev => reorderSwipeMove(ev.clientX, ev.clientY); const up = () => { reorderSwipeEnd(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); },
+  };
+  // Dedicated strips fully own horizontal gestures so the browser's native edge-swipe-back
+  // gesture can't steal/interrupt the touch before our own handler sees the movement.
+  const reorderEdgeStripHandlers = {
+    onTouchStart: e => { const t = e.touches[0]; reorderSwipeStart(t.clientX, t.clientY); },
+    onTouchMove: e => { const t = e.touches[0]; reorderSwipeMove(t.clientX, t.clientY); if (Math.abs(reorderSwipeRef.current.dx) > Math.abs(reorderSwipeRef.current.dy)) e.preventDefault(); },
+    onTouchEnd: () => reorderSwipeEnd(),
+    onMouseDown: e => { reorderSwipeStart(e.clientX, e.clientY); const move = ev => reorderSwipeMove(ev.clientX, ev.clientY); const up = () => { reorderSwipeEnd(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); }; window.addEventListener('mousemove', move); window.addEventListener('mouseup', up); },
+  };
+  const reorderWheelHandlers = {
     onWheel: e => {
       if (Math.abs(e.deltaX) < Math.abs(e.deltaY)) return;
       e.preventDefault();
@@ -4738,6 +4756,37 @@ function App() {
       goReorderSubTab(e.deltaX > 0 ? 1 : -1);
     },
   };
+  const REORDER_EDGE_ZONE = 44; // px from the physical screen edge that still counts as an edge-swipe, even over content
+  const REORDER_MIN_EDGE_ZONE = 44; // guaranteed minimum width of the dedicated edge-swipe strip, even on tight screens
+  const reorderContentTouchHandlers = {
+    onTouchStart: e => { const t = e.touches[0]; if (t.clientX <= REORDER_EDGE_ZONE || t.clientX >= window.innerWidth - REORDER_EDGE_ZONE) reorderSwipeStart(t.clientX, t.clientY); },
+    onTouchMove: e => { const t = e.touches[0]; reorderSwipeMove(t.clientX, t.clientY); },
+    onTouchEnd: () => reorderSwipeEnd(),
+    onMouseDown: e => {
+      if (e.clientX > REORDER_EDGE_ZONE && e.clientX < window.innerWidth - REORDER_EDGE_ZONE) return;
+      reorderSwipeStart(e.clientX, e.clientY);
+      const move = ev => reorderSwipeMove(ev.clientX, ev.clientY);
+      const up = () => { reorderSwipeEnd(); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+      window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    },
+  };
+  const reorderSwipeHandlers = { ...reorderTouchHandlers, ...reorderWheelHandlers };
+  const reorderContentColRef = useRef(null);
+  const [reorderEdgeBounds, setReorderEdgeBounds] = useState({ left:0, right:0, navWidth:0 });
+  useEffect(() => {
+    const measure = () => {
+      const el = reorderContentColRef.current;
+      const navEl = document.querySelector('.left-nav');
+      const navWidth = navEl ? navEl.getBoundingClientRect().width : 0;
+      if (!el) { setReorderEdgeBounds({ left:0, right:0, navWidth }); return; }
+      const r = el.getBoundingClientRect();
+      setReorderEdgeBounds({ left: Math.max(0, r.left), right: Math.max(0, window.innerWidth - r.right), navWidth });
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    const t = setTimeout(measure, 50); // catch late layout shifts (fonts, sticky header, etc.)
+    return () => { window.removeEventListener('resize', measure); clearTimeout(t); };
+  }, [stockTab, orderingSubTab, view]);
   const [highlightedOrderId, setHighlightedOrderId] = useState(null);
   const [undoHighlightIds, setUndoHighlightIds] = useState([]);
   useEffect(() => {
@@ -4759,11 +4808,16 @@ function App() {
   }, [ocSwipe.id, ocSwipe.offset]);
   const [stockSearch, setStockSearch] = useState('');
   const [lowStockN,  setLowStockN]   = useState(() => { const v = localStorage.getItem('lowStockN');  return v !== null ? parseInt(v) : 3; });
+  const [lowStockNInput, setLowStockNInput] = useState(null); // raw text while actively editing the threshold input; null = not editing
   const [lowStockOp, setLowStockOp]  = useState(() => localStorage.getItem('lowStockOp') || 'lte'); // 'lt' | 'lte'
   const [lowViewMode, setLowViewModeRaw] = useState(() => localStorage.getItem('lowViewMode') || 'product'); // 'product' | 'link' | 'supplier'
   const setLowViewMode = m => { setLowViewModeRaw(m); localStorage.setItem('lowViewMode', m); };
   const [lowQrGroupExpanded,  setLowQrGroupExpanded]  = useState({});
   const [lowSupGroupExpanded, setLowSupGroupExpanded] = useState({});
+  const [pendingQrGroupExpanded,  setPendingQrGroupExpanded]  = useState({});
+  const [pendingSupGroupExpanded, setPendingSupGroupExpanded] = useState({});
+  const [purchaseQrGroupExpanded,  setPurchaseQrGroupExpanded]  = useState({});
+  const [purchaseSupGroupExpanded, setPurchaseSupGroupExpanded] = useState({});
   const [brandingFlash, setBrandingFlash] = useState(false);
   const [apiKeyFlash, setApiKeyFlash] = useState(false);
   const [products, setProducts]     = useState([]);
@@ -4803,6 +4857,21 @@ function App() {
 
   const stockUnitsSentinelRef = useRef(null);
   const [stockUnitsLineStuck, setStockUnitsLineStuck] = useState(false);
+  const stockUnitsRowRef = useRef(null);
+  const [stockUnitsRowH, setStockUnitsRowH] = useState(0);
+  const [groupHeaderH, setGroupHeaderH] = useState(0);
+  const measureGroupHeaderRef = el => { if (el) { const hgt = el.offsetHeight; setGroupHeaderH(prev => prev === hgt ? prev : hgt); } };
+
+  useEffect(() => {
+    const el = stockUnitsRowRef.current;
+    if (!el) { setStockUnitsRowH(0); return; }
+    const measure = () => setStockUnitsRowH(el.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+  }, [stockTab, orderingSubTab, lowViewMode, stockUnitsLineStuck]);
 
   useEffect(() => {
     const el = stockUnitsSentinelRef.current;
@@ -5043,10 +5112,10 @@ function App() {
   const scrollWrapRef = useRef(null);
   const lastScrollY = useRef(0);
   const [showCount, setShowCount] = useState(true);
-  const showToast = (msg, type='success') => {
+  const showToast = (msg, type='success', undo=null) => {
     clearTimeout(toastTimer.current);
-    setToast({ msg, type });
-    toastTimer.current = setTimeout(() => setToast(null), 3000);
+    setToast({ msg, type, undo });
+    toastTimer.current = setTimeout(() => setToast(null), undo ? 5000 : 3000);
   };
   const fileRef   = useRef(null);
   const cameraRef = useRef(null);
@@ -5775,8 +5844,17 @@ function App() {
   const saveQueue = async () => {
     if (queue.length === 0) { setView('dashboard'); return; }
     setLoading(true);
-    const updated = [...[...queue].reverse(), ...products];
+    // Mark these as "ordering only" — they stay out of the main Product page and
+    // Low Stock alerts until they're actually received; they only surface in the
+    // Reorder → Pending Order sub-tab.
+    const queueFlagged = queue.map(p => ({ ...p, pending_new: true }));
+    const updated = [...[...queueFlagged].reverse(), ...products];
     setProducts(updated); await persistProducts(updated);
+    // Send newly added products to the Pending Order list in the Reorder page
+    const newIds = queue.map(p => p.id);
+    const nextOrderingIds = [...newIds, ...orderingIds];
+    setOrderingIds(nextOrderingIds);
+    try { localStorage.setItem('orderingIds', JSON.stringify(nextOrderingIds)); } catch(e) {}
     // Log each newly added product into IE history
     const now = new Date().toISOString();
     const addedEntries = queue.map(p => ({
@@ -5793,7 +5871,8 @@ function App() {
       try { window.storage?.set('inv-ie-history', JSON.stringify(next)); } catch(e) {}
       return next;
     });
-    setQueue([]); setPending(null); setLoading(false); setView('dashboard');
+    setQueue([]); setPending(null); setLoading(false);
+    setStockTab('ordering'); setOrderingSubTab('pending'); setView('lowstock');
   };
 
   const updateStock = async (id, delta) => {
@@ -5971,14 +6050,17 @@ function App() {
     reader.readAsText(file); e.target.value='';
   };
 
-  const filtered = products.filter(p => {
+  // Products awaiting purchase (added via Add New Product → Save All) are excluded
+  // from the Product page and its stats — they only live in Reorder → Pending Order.
+  const catalogProducts = products.filter(p => !p.pending_new);
+  const filtered = catalogProducts.filter(p => {
     const q = search.toLowerCase();
     return (!search || p.product_name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.id.toLowerCase().includes(q) || (p.tags||[]).some(t => t.toLowerCase().includes(q)))
       && (catFilter==='All' || p.category===catFilter);
   });
-  const usedCats   = [...new Set(products.map(p => p.category))];
-  const totalStock = products.reduce((s,p) => s+p.stock_count, 0);
-  const outOfStock = products.filter(p => p.stock_count===0).length;
+  const usedCats   = [...new Set(catalogProducts.map(p => p.category))];
+  const totalStock = catalogProducts.reduce((s,p) => s+p.stock_count, 0);
+  const outOfStock = catalogProducts.filter(p => p.stock_count===0).length;
 
   const addProduct = () => { setError(null); const _id=generateId(); setPending({ id:_id, product_name:draftProductName, category:categoryLocked?lockedCategoryValue:lastSelectedCategory, description:draftDescription, estimated_price:priceLocked?lockedPriceValue:lastSelectedPrice, tags:[], product_type:productTypeLocked?lockedProductTypeValue:lastSelectedProductType, supplier:lastSelectedSupplier, barcode_data:_id, image_url:draftImageRef.current||'', stock_count:1, qr_link_url:lastQrUrlRef.current||'', product_price:lastProductPrice, combine_price:lastCombinePrice, combine_price_cny:lastCombinePriceCny, timestamp:new Date().toISOString() }); setTagInput(localStorage.getItem('inv-draft-tags')||''); setView('upload'); };
   const confirmQrCrop = () => {
@@ -6082,7 +6164,7 @@ function App() {
       queue.length > 0 && h('span', { className:'nav-badge' }, queue.length)
     ),
     h('button', { className:'nav-item' + (view==='lowstock'?' active':''), title:'Reorder', onClick:()=>{ if(view==='lowstock'){ setStockTab('ordering'); setOrderingSubTab('pending'); } else { setView('lowstock'); } },
-      style: products.filter(p => lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0).length>0 ? {position:'relative'} : {} },
+      style: products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length>0 ? {position:'relative'} : {} },
       h('span', { className:'nav-icon' },
         h('svg', { width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
           h('path', { d:'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8' }),
@@ -6092,7 +6174,7 @@ function App() {
         )
       ),
       h('span', { className:'nav-label' }, 'Reorder'),
-      products.filter(p => lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0).length > 0 && h('span', { className:'nav-badge', style:{background:'#ef4444'} }, products.filter(p => lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0).length)
+      products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length > 0 && h('span', { className:'nav-badge', style:{background:'#ef4444'} }, products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length)
     ),
     h('button', { className:'nav-item' + (view==='pos'?' active':''), title:'Point of Sale', onClick:()=>setView('pos') },
       h('span', { className:'nav-icon' }, '🛒'),
@@ -6125,20 +6207,21 @@ function App() {
         || (p.barcode_data||'').toLowerCase().includes(stockSearchLower)
         || (p.tags||[]).some(t => t.toLowerCase().includes(stockSearchLower));
     };
-    const outOfStockList = products.filter(p => p.stock_count === 0 && matchesStockSearch(p)).sort((a,b) => a.product_name.localeCompare(b.product_name));
-    const lowStockList   = products.filter(p => p.stock_count > 0 && (lowStockOp==='lte' ? p.stock_count <= lowStockN : p.stock_count < lowStockN) && matchesStockSearch(p)).sort((a,b) => a.stock_count - b.stock_count);
+    const outOfStockList = products.filter(p => !p.pending_new && p.stock_count === 0 && matchesStockSearch(p)).sort((a,b) => a.product_name.localeCompare(b.product_name));
+    const lowStockList   = products.filter(p => !p.pending_new && p.stock_count > 0 && (lowStockOp==='lte' ? p.stock_count <= lowStockN : p.stock_count < lowStockN) && matchesStockSearch(p)).sort((a,b) => a.stock_count - b.stock_count);
     const allAlerts = [...outOfStockList, ...lowStockList];
     const manualOrderCount = products.filter(p => orderingIds.includes(p.id)).length;
     const stockStats = [
       { key:'ordering',      icon:'\ud83d\uded2', label:'Ordering',       value: manualOrderCount,       red: manualOrderCount>0 },
       { key:'deliverynote',  icon:'\ud83d\udcdd', label:'Delivery Note',  value: 0,                      red: false },
       { key:'packaging',     icon:'\ud83d\udce6', label:'Packaging',      value: purchaseOrders.filter(o => products.some(p => p.id === o.id)).length,  red: false },
-      { key:'instore',       icon:'\ud83c\udfe5', label:'In Store',       value: products.filter(p => lowStockOp==='lte' ? p.stock_count>lowStockN : p.stock_count>=lowStockN).length, red: false },
+      { key:'instore',       icon:'\ud83c\udfe5', label:'In Store',       value: products.filter(p => !p.pending_new && (lowStockOp==='lte' ? p.stock_count>lowStockN : p.stock_count>=lowStockN)).length, red: false },
     ];
 
-    const StockRow = ({ p, flush }) => {
+    const StockRow = ({ p, flush, isFirst, isLast }) => {
       const rowExpanded = expandedStockId === p.id;
       const rowBaseBg = 'var(--surface)';
+      const rowRadius = flush ? (isFirst && isLast ? '10px' : isFirst ? '10px 10px 0 0' : isLast ? '0 0 10px 10px' : '0') : '0';
       const draft = rowExpanded ? (stockEditDraft || p) : p;
       const upd = (patch) => setStockEditDraft(d => d ? {...d, ...patch} : {...p, ...patch});
       const toggleExpand = () => {
@@ -6163,16 +6246,18 @@ function App() {
       const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(p) : false;
       const lbl = (text) => h('label', { style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em',color:'var(--muted)',display:'block',marginBottom:3} }, text);
 
-      return h('div', { key:p.id, style:{borderBottom:'1px solid var(--border)'} },
+      return h('div', { key:p.id, style:{} },
         h('div', {
           className: 'stock-product-row',
           style:{
             display:'grid', gridTemplateColumns:'36px 1fr auto', alignItems:'center', gap:10,
             padding:'7px 14px', transition:'background 0.1s', cursor:'pointer',
-            background: rowExpanded ? 'var(--amber-light)' : rowBaseBg,
+            background: rowExpanded ? (darkMode ? 'var(--bg)' : 'var(--amber-light)') : rowBaseBg,
+            borderRadius: rowRadius,
+            ...(flush && rowExpanded ? { position:'sticky', top:Math.max(0, stockStickyHeaderH + stockUnitsRowH + groupHeaderH - 2), zIndex:70 } : {}),
           },
           onClick: toggleExpand,
-          onMouseEnter:e=>{ if(!rowExpanded) e.currentTarget.style.background='var(--amber-light)'; },
+          onMouseEnter:e=>{ if(!rowExpanded) e.currentTarget.style.background=darkMode?'var(--bg)':'var(--amber-light)'; },
           onMouseLeave:e=>{ if(!rowExpanded) e.currentTarget.style.background=rowBaseBg; },
         },
           h('div', {
@@ -6202,15 +6287,11 @@ function App() {
             title: purchaseOrders.some(o => o.id === p.id) ? 'View in Purchase Order' : orderingIds.includes(p.id) ? 'View in Pending Order' : 'Add to ordering',
             style:{
               fontSize:11, padding:'3px 9px', whiteSpace:'nowrap',
-              ...(purchaseOrders.some(o => o.id === p.id) ? {
-                color: '#166534',
-                borderColor: '#86efac',
-                background: '#dcfce7',
-              } : orderingIds.includes(p.id) ? {
-                color: 'var(--amber-dark)',
-                borderColor: 'var(--amber)',
-                background: 'var(--amber-light)',
-              } : {})
+              ...(purchaseOrders.some(o => o.id === p.id)
+                ? { color:'#16a34a', borderColor:'#16a34a' }
+                : orderingIds.includes(p.id)
+                ? { color:'#ca8a04', borderColor:'#ca8a04' }
+                : {}),
             },
             onClick:(e)=>{
               e.stopPropagation();
@@ -6234,7 +6315,7 @@ function App() {
           )
         ),
         /* ── EXPANDED EDIT FORM (full replica of queue row's expanded form) ── */
-        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--amber-light)'} },
+        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background: darkMode ? 'var(--bg)' : 'var(--amber-light)'} },
           /* ── Cancel / Save changes buttons ── */
           h('div', { style:{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:12} },
             h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:e=>{ e.stopPropagation(); cancelEdit(); } }, 'Discard'),
@@ -6391,8 +6472,33 @@ function App() {
 
     return h('div', { style:{position:'relative'} },
       leftNav,
+      toast && h('div', { style:{
+        position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+        background: toast.type === 'error' ? '#450a0a' : '#052e16',
+        border: `1px solid ${toast.type === 'error' ? '#991b1b' : '#166534'}`,
+        color: toast.type === 'error' ? '#fca5a5' : '#86efac',
+        borderRadius: 12, padding: '11px 20px', fontSize: 13, fontWeight: 500,
+        boxShadow: '0 8px 32px rgba(0,0,0,0.45)', zIndex: 99999,
+        whiteSpace: 'nowrap', pointerEvents: toast.undo ? 'auto' : 'none',
+        display: 'flex', alignItems: 'center', gap: 14,
+        animation: 'fadeIn 0.2s ease'
+      } },
+        h('span', null, toast.msg),
+        toast.undo && h('button', {
+          onClick: () => { toast.undo(); setToast(null); },
+          style:{ background:'transparent', border:'none', color:'inherit', textDecoration:'underline', fontWeight:700, cursor:'pointer', fontSize:13, padding:0, pointerEvents:'auto' }
+        }, 'Undo')
+      ),
+      getReorderSubTab() !== null && h('div', {
+        ...reorderEdgeStripHandlers,
+        style:{ position:'fixed', top:0, bottom:0, left:reorderEdgeBounds.navWidth, width:Math.max(reorderEdgeBounds.left - reorderEdgeBounds.navWidth, REORDER_MIN_EDGE_ZONE), zIndex:60, touchAction:'none' }
+      }),
+      getReorderSubTab() !== null && h('div', {
+        ...reorderEdgeStripHandlers,
+        style:{ position:'fixed', top:0, bottom:0, right:0, width:Math.max(reorderEdgeBounds.right, REORDER_MIN_EDGE_ZONE), zIndex:60, touchAction:'none' }
+      }),
       h('div', { className:'with-left-nav', style:{minHeight:'100vh',background:'var(--bg)'} },
-        h('div', { style:{maxWidth:720,margin:'0 auto',padding:'0 24px 48px'} },
+        h('div', { ref: reorderContentColRef, style:{maxWidth:720,margin:'0 auto',padding:'0 24px 48px'} },
           h('div', { ref: stockStickyHeaderRef, style:{position:'sticky',top:0,zIndex:100,background:'var(--bg)',paddingTop:28,paddingBottom:14,marginBottom:0} },
             h('div', { style:{display:'flex',alignItems:'center',gap:10,marginBottom:16,flexWrap:'wrap'} },
               h('h1', { className:'stock-mgmt-title', style:{fontSize:'clamp(15px, 4vw, 22px)',fontWeight:700,margin:0,color:'var(--text)',flex:1,display:'flex',alignItems:'center',gap:8} },
@@ -6418,9 +6524,12 @@ function App() {
                     h('option', { value:'lte' }, isMobile ? '\u2264' : '\u2264 (below or equal)')
                   ),
                   h('input', {
-                    type:'number', min:1, max:999,
-                    value: lowStockN,
-                    onChange: e => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1) { setLowStockN(v); localStorage.setItem('lowStockN', v); } },
+                    type:'number', min:1, max:999, inputMode:'numeric',
+                    value: lowStockNInput !== null ? lowStockNInput : lowStockN,
+                    onFocus: e => { setLowStockNInput(String(lowStockN)); e.target.select(); },
+                    onChange: e => { setLowStockNInput(e.target.value); const v = parseInt(e.target.value); if (!isNaN(v) && v >= 1) { setLowStockN(v); localStorage.setItem('lowStockN', v); } },
+                    onBlur: () => { const v = parseInt(lowStockNInput); const final = (!isNaN(v) && v >= 1) ? Math.min(v, 999) : lowStockN; setLowStockN(final); localStorage.setItem('lowStockN', final); setLowStockNInput(null); },
+                    onKeyDown: e => { if (e.key === 'Enter') e.currentTarget.blur(); },
                     style:{width:44,fontSize:12,fontWeight:700,color:'var(--text)',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:5,padding:'1px 5px',outline:'none',fontFamily:'var(--font)',textAlign:'center'},
                     title:'Threshold quantity'
                   }),
@@ -6632,7 +6741,7 @@ function App() {
                   h('span', { style:{display:'contents'} },
                     h('span', {}, (stockTab === 'ordering' && orderingSubTab === 'purchase') ? 'Purchased' : 'Pu..'),
                   ),
-                  purchaseOrders.length > 0 && h('span', {
+                  (() => { const c = purchaseOrders.filter(o => products.some(p => p.id === o.id)).length; return c > 0 && h('span', {
                     style:{
                       background: (stockTab === 'ordering' && orderingSubTab === 'purchase') ? 'var(--amber)' : 'var(--border)',
                       color: (stockTab === 'ordering' && orderingSubTab === 'purchase') ? '#fff' : 'var(--muted)',
@@ -6640,7 +6749,7 @@ function App() {
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 10, fontWeight: 700, padding: '0 5px', lineHeight: 1,
                     }
-                  }, purchaseOrders.length)
+                  }, c); })()
                 )
               )
             ),
@@ -6651,7 +6760,7 @@ function App() {
 
 
 
-          h('div', { key:'reorder-content-'+getReorderSubTab(), ...reorderSwipeHandlers, style:{touchAction:'pan-y', minHeight:'50vh', animation: getReorderSubTab() ? (reorderSlideDir===1?'tabPushInFromRight':'tabPushInFromLeft')+' 0.22s ease' : undefined} },
+          h('div', { key:'reorder-content-'+getReorderSubTab(), ...reorderWheelHandlers, ...reorderContentTouchHandlers, style:{touchAction:'pan-y', minHeight:'50vh', animation: getReorderSubTab() ? (reorderSlideDir===1?'tabPushInFromRight':'tabPushInFromLeft')+' 0.22s ease' : undefined} },
 
           /* ── TAB: LOW STOCK ── */
           stockTab === 'lowstock' && h('div', null,
@@ -6667,6 +6776,7 @@ function App() {
             allAlerts.length > 0 && h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, '\u26a0\ufe0f Low Stock List'),
             allAlerts.length > 0 && h('div', { ref: stockUnitsSentinelRef, style:{height:0} }),
             allAlerts.length > 0 && h('div', {
+              ref: stockUnitsRowRef,
               style:{
                 display:'flex', alignItems:'center', justifyContent:'flex-start', gap:8,
                 marginTop:stockUnitsLineStuck?0:3,
@@ -6720,7 +6830,8 @@ function App() {
                     h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
                       /* group header */
                       h('div', {
-                        style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'relative',zIndex:expanded?2:1,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?'0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)':'none'},
+                        ref: measureGroupHeaderRef,
+                        style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
                         onClick:()=>setLowQrGroupExpanded(prev=>({...prev,[key]:!expanded})),
                         onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
                         onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
@@ -6756,10 +6867,11 @@ function App() {
                         )
                       ),
                       /* expanded rows */
-                      expanded && h('div', { style:{padding:'5px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px'} },
-                        h('div', { style:{borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',gap:0,overflow:'hidden'} },
+                      expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
+                        h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
+                        h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',gap:0,overflow:'visible'} },
                           h('div', { style:{flex:1,display:'flex',flexDirection:'column'} },
-                            items.map(p => StockRow({ p, flush:true }))
+                            items.map((p, idx) => StockRow({ p, flush:true, isFirst: idx===0, isLast: idx===items.length-1 }))
                           )
                         )
                       )
@@ -6789,7 +6901,8 @@ function App() {
                     h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
                       /* group header */
                       h('div', {
-                        style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'relative',zIndex:expanded?2:1,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?'0 2px 8px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08)':'none'},
+                        ref: measureGroupHeaderRef,
+                        style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
                         onClick:()=>setLowSupGroupExpanded(prev=>({...prev,[key]:!expanded})),
                         onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
                         onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
@@ -6824,10 +6937,11 @@ function App() {
                         )
                       ),
                       /* expanded rows */
-                      expanded && h('div', { style:{padding:'5px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px'} },
-                        h('div', { style:{borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',gap:0,overflow:'hidden'} },
+                      expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
+                        h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
+                        h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',gap:0,overflow:'visible'} },
                           h('div', { style:{flex:1,display:'flex',flexDirection:'column'} },
-                            items.map(p => StockRow({ p, flush:true }))
+                            items.map((p, idx) => StockRow({ p, flush:true, isFirst: idx===0, isLast: idx===items.length-1 }))
                           )
                         )
                       )
@@ -6852,13 +6966,56 @@ function App() {
               const nx = orderingIds.filter(id => id !== pid);
               setOrderingIds(nx); localStorage.setItem('orderingIds', JSON.stringify(nx));
             };
+            const ocDoRemoveGroup = pids => {
+              setPrevOrderingIds([...orderingIds]);
+              const idSet = new Set(pids);
+              const nx = orderingIds.filter(id => !idSet.has(id));
+              setOrderingIds(nx); localStorage.setItem('orderingIds', JSON.stringify(nx));
+            };
+            /* Shared hold-to-reveal-remove behavior for a group header row (QR view / Supplier view). */
+            const useGroupSwipe = (groupId, groupIds) => {
+              const groupRevealed = ocSwipe.id === groupId && ocSwipe.offset !== 0;
+              const isHoldingGroup = ocHold.id === groupId;
+              const onGroupDown = e => {
+                const cx = e.touches ? e.touches[0].clientX : e.clientX;
+                const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                ocPressStart.current = { x:cx, y:cy };
+                if (groupRevealed) return;
+                ocStartHold(groupId, () => setOcSwipe({ id:groupId, offset:-90, ready:true }));
+              };
+              const onGroupMove = e => {
+                const cx = e.touches ? e.touches[0].clientX : e.clientX;
+                const cy = e.touches ? e.touches[0].clientY : e.clientY;
+                const dx = cx - ocPressStart.current.x;
+                const dy = cy - ocPressStart.current.y;
+                if (Math.abs(dx) > OC_HOLD_MOVE_TOLERANCE || Math.abs(dy) > OC_HOLD_MOVE_TOLERANCE) ocClearHold();
+              };
+              const onGroupUp = () => ocClearHold();
+              const groupHoldBar = isHoldingGroup && h('div', { style:{ position:'absolute', top:0, right:0, width:3, height:(ocHold.pct)+'%', background:'var(--amber)', zIndex:2, pointerEvents:'none' } });
+              const groupRemoveBtn = h('div', {
+                'data-oc-action': true,
+                onClick: e => { e.stopPropagation(); ocDoRemoveGroup(groupIds); },
+                onMouseDown: e => e.stopPropagation(),
+                onTouchStart: e => e.stopPropagation(),
+                style:{
+                  width: groupRevealed ? 90 : 0, minWidth: groupRevealed ? 90 : 0, height:44, borderRadius:8,
+                  background:'#dc2626', color:'#fff', fontSize:11, fontWeight:700,
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  overflow:'hidden', whiteSpace:'nowrap', cursor:'pointer', flexShrink:0,
+                  transition:'width 0.22s ease, min-width 0.22s ease',
+                }
+              }, groupRevealed && 'Remove');
+              return { groupRevealed, onGroupDown, onGroupMove, onGroupUp, groupHoldBar, groupRemoveBtn };
+            };
             const ocCancel = () => {
               ocClearHold();
               setOcSwipe({ id:null, offset:0, ready:false });
             };
-            const renderCard = (p, isOOS) => {
+            const renderCard = (p, isOOS, inGroup, isFirst, isLast) => {
+              const rowRadius = inGroup ? (isFirst && isLast ? '10px' : isFirst ? '10px 10px 0 0' : isLast ? '0 0 10px 10px' : '0') : '0';
               const orderQty    = orderQtys[p.id] || 1;
-              const setOrderQty = fn => setOrderQtys(prev => ({ ...prev, [p.id]: typeof fn==='function' ? fn(prev[p.id]||2) : fn }));
+              const setOrderQty = fn => setOrderQtys(prev => ({ ...prev, [p.id]: typeof fn==='function' ? fn(prev[p.id]||1) : fn }));
+              const mergedP = mergeReorderInfo(p);
               const isHighlighted     = highlightedOrderId === p.id;
               const isUndoHighlighted = undoHighlightIds.includes(p.id);
               const isTarget   = ocSwipe.id === p.id;
@@ -6866,20 +7023,46 @@ function App() {
               const isHoldingThis = ocHold.id === p.id;
               /* ── expand / collapse (same logic as Low sub-tab StockRow) ── */
               const rowExpanded = expandedStockId === p.id;
-              const draft = rowExpanded ? (stockEditDraft || p) : p;
-              const upd = (patch) => setStockEditDraft(d => d ? {...d, ...patch} : {...p, ...patch});
+              const draft = rowExpanded ? (stockEditDraft || mergedP) : mergedP;
+              const commitDraft = (finalDraft) => {
+                const { id, stock_count, _supDropOpen, ...patch } = finalDraft;
+                setReorderInfo(prev => ({ ...prev, [p.id]: { ...(prev[p.id]||{}), ...patch } }));
+              };
+              const scheduleAutoSave = (finalDraft, qtySnapshot) => {
+                let bucket = reorderAutoSaveTimers.current[p.id];
+                if (!bucket) {
+                  bucket = { prevInfo: reorderInfo[p.id] ? {...reorderInfo[p.id]} : null, prevQty: qtySnapshot !== undefined ? qtySnapshot : orderQtys[p.id] };
+                  reorderAutoSaveTimers.current[p.id] = bucket;
+                }
+                clearTimeout(bucket.timer);
+                bucket.timer = setTimeout(() => {
+                  commitDraft(finalDraft);
+                  const { prevInfo, prevQty } = bucket;
+                  delete reorderAutoSaveTimers.current[p.id];
+                  showToast('✅ Changes saved', 'success', () => {
+                    setReorderInfo(prev => {
+                      const next = { ...prev };
+                      if (prevInfo) next[p.id] = prevInfo; else delete next[p.id];
+                      return next;
+                    });
+                    setOrderQtys(prev => ({ ...prev, [p.id]: prevQty }));
+                    setStockEditDraft(d => d ? { ...mergeReorderInfo(p), ...(prevInfo||{}) } : d);
+                  });
+                }, 700);
+              };
+              const upd = (patch) => setStockEditDraft(d => {
+                const next = d ? {...d, ...patch} : {...mergedP, ...patch};
+                scheduleAutoSave(next);
+                return next;
+              });
               const toggleExpand = () => {
                 if (swipeOff !== 0) return;
                 if (rowExpanded) { setExpandedStockId(null); setStockEditDraft(null); }
-                else { setExpandedStockId(p.id); setStockEditDraft({...p}); }
+                else { setExpandedStockId(p.id); setStockEditDraft({...mergedP}); }
               };
-              const cancelEdit = () => { setStockEditDraft({...p}); };
-              const saveEdit = () => {
-                const updated = { ...draft };
-                setProducts(prev => { const next = prev.map(item => item.id === p.id ? { ...item, ...updated } : item); persistProducts(next); return next; });
-                setStockEditDraft({...updated});
-              };
-              const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(p) : false;
+              const cancelEdit = () => { setStockEditDraft({...mergedP}); };
+              const saveEdit = () => { commitDraft(draft); };
+              const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(mergedP) : false;
               const lbl = (text) => h('label', { style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em',color:'var(--muted)',display:'block',marginBottom:3} }, text);
               const handleStockImgReplace = (e) => { const file = e.target.files?.[0]; if (!file) return; resizeImage(file).then(dataUrl => upd({ image_url: dataUrl })).catch(()=>{}); e.target.value = ''; };
               const onDown = e => {
@@ -6897,10 +7080,8 @@ function App() {
                 if (Math.abs(dx) > OC_HOLD_MOVE_TOLERANCE || Math.abs(dy) > OC_HOLD_MOVE_TOLERANCE) ocClearHold();
               };
               const onUp = () => ocClearHold();
-              return h('div', { key:p.id, 'data-oc-row':true, style:{ position:'relative', borderBottom:'1px solid var(--border)' } },
-                /* overflow:hidden scoped to row only so the expand panel isn't clipped */
-                h('div', { style:{ overflow:'hidden' } },
-                  h('div', {
+              return h('div', { key:p.id, 'data-oc-row':true, style:{ position:'relative' } },
+                h('div', {
                     onMouseDown:onDown, onMouseMove:onMove, onMouseUp:onUp,
                     onClick: toggleExpand,
                     onMouseEnter: e => { if (!rowExpanded && !(isUndoHighlighted||isHighlighted)) e.currentTarget.style.background='var(--amber-light)'; },
@@ -6908,10 +7089,11 @@ function App() {
                     onTouchStart:onDown, onTouchMove:onMove, onTouchEnd:onUp, onTouchCancel:onUp,
                     style:{
                       position:'relative', zIndex:1,
-                      background: rowExpanded ? 'var(--amber-light)' : (isUndoHighlighted||isHighlighted) ? 'var(--amber-light)' : 'var(--surface)',
+                      background: rowExpanded ? (darkMode ? 'var(--bg)' : 'var(--amber-light)') : (isUndoHighlighted||isHighlighted) ? 'var(--amber-light)' : 'var(--surface)',
                       padding:'8px 12px', display:'grid', gridTemplateColumns:'44px 1fr auto', gap:10, alignItems:'center',
                       boxShadow:(isUndoHighlighted||isHighlighted)?'inset 0 0 0 2px var(--amber)':'none',
-                      userSelect:'none', cursor:'pointer',
+                      userSelect:'none', cursor:'pointer', borderRadius: rowRadius,
+                      ...(inGroup && rowExpanded ? { position:'sticky', top:Math.max(0, stockStickyHeaderH + stockUnitsRowH + groupHeaderH - 2), zIndex:70 } : {}),
                     }
                   },
                   isHoldingThis && h('div', {
@@ -6920,12 +7102,12 @@ function App() {
                       background:'var(--amber)', zIndex:2, pointerEvents:'none',
                     }
                   }),
-                  h('div', { style:{width:44,height:44,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0,opacity:p.image_url?1:0.3} },
-                    p.image_url ? h('img', { src:p.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
+                  h('div', { style:{width:44,height:44,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0,opacity:mergedP.image_url?1:0.3} },
+                    mergedP.image_url ? h('img', { src:mergedP.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
                   ),
                   h('div', { style:{minWidth:0} },
-                    h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, p.product_name||'Unnamed'),
-                    h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (p.product_type ? p.product_type+', ' : '') + (p.category||'Uncategorized')),
+                    h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, mergedP.product_name||'Unnamed'),
+                    h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (mergedP.product_type ? mergedP.product_type+', ' : '') + (mergedP.category||'Uncategorized')),
                     expandedQtyId === p.id
                       ? h('div', { style:{display:'flex',alignItems:'center',gap:6,marginTop:5} },
                           h('button', { onMouseDown:e=>e.stopPropagation(), onClick:e=>{ e.stopPropagation(); setOrderQty(q=>Math.max(1,q-1)); }, style:{width:20,height:20,borderRadius:5,border:'1px solid var(--border)',background:'var(--bg)',cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text)'} }, '\u2212'),
@@ -6946,9 +7128,11 @@ function App() {
                       transition: swipeOff===0 ? 'transform 0.25s ease' : 'none',
                       position:'relative',
                     } },
-                    isOOS
-                      ? h('span', { style:{fontSize:9,fontWeight:700,color:'#991b1b',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'Out of stock')
-                      : h('span', { style:{fontSize:9,fontWeight:700,color:'#713f12',background:'#fef9c3',border:'1px solid #fde68a',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, p.stock_count+' left'),
+                    p.pending_new
+                      ? h('span', { style:{fontSize:9,fontWeight:700,color:'#065f46',background:'#d1fae5',border:'1px solid #6ee7b7',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'New')
+                      : isOOS
+                        ? h('span', { style:{fontSize:9,fontWeight:700,color:'#991b1b',background:'#fee2e2',border:'1px solid #fca5a5',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'Out of stock')
+                        : h('span', { style:{fontSize:9,fontWeight:700,color:'#713f12',background:'#fef9c3',border:'1px solid #fde68a',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, p.stock_count+' left'),
                     h('button', {
                       className:'btn-ghost',
                       disabled: swipeOff !== 0,
@@ -6957,7 +7141,7 @@ function App() {
                       onClick: e => {
                         e.stopPropagation();
                         if (swipeOff !== 0) return;
-                        const entry = { id:p.id, product_name:p.product_name||'Unnamed', category:p.category||'Uncategorized', product_type:p.product_type||'', image_url:p.image_url||'', stock_count:p.stock_count, qty:orderQty, addedAt:new Date().toISOString() };
+                        const entry = { id:p.id, product_name:mergedP.product_name||'Unnamed', category:mergedP.category||'Uncategorized', product_type:mergedP.product_type||'', image_url:mergedP.image_url||'', stock_count:p.stock_count, qty:orderQty, addedAt:new Date().toISOString() };
                         const next = [entry, ...purchaseOrders.filter(o => o.id !== p.id)];
                         setPurchaseOrders(next);
                         localStorage.setItem('purchaseOrders', JSON.stringify(next));
@@ -6974,23 +7158,15 @@ function App() {
                       style:{
                         position:'absolute', top:0, bottom:0, left:'calc(100% + 15px)', width:90,
                         background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center', gap:5,
-                        color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer'
+                        color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer',
+                        opacity: swipeOff!==0 ? 1 : 0, pointerEvents: swipeOff!==0 ? 'auto' : 'none',
+                        transition: swipeOff===0 ? 'opacity 0.25s ease' : 'none',
                       }
                     }, 'Remove'),
                   )
-                  )
                 ),
                 /* ── expanded edit panel (mirrors Low sub-tab StockRow) ── */
-                rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--surface)'} },
-                  h('div', { style:{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:12} },
-                    h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:e=>{ e.stopPropagation(); cancelEdit(); } }, 'Discard'),
-                    h('button', {
-                      className: (isDirty ? 'btn-amber save-changes-glow' : 'btn-ghost'),
-                      style:{fontSize:12,padding:'6px 14px',transition:'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease'},
-                      onClick:e=>{ e.stopPropagation(); if(isDirty) saveEdit(); },
-                      disabled: !isDirty
-                    }, 'Save changes')
-                  ),
+                rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background: darkMode ? 'var(--bg)' : 'var(--amber-light)'} },
                   h('div', { style:{display:'grid',gridTemplateColumns:'110px minmax(0,1fr)',gap:'10px 14px',marginBottom:12} },
                     h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
                       h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image',
@@ -7042,9 +7218,9 @@ function App() {
                         h('div', null,
                           lbl('Stock Qty'),
                           h('div', { style:{display:'flex',alignItems:'center',gap:6} },
-                            h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:Math.max(0,(draft.stock_count||0)-1)});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '\u2212'),
-                            h('span', { style:{minWidth:24,textAlign:'center',fontSize:13,fontWeight:700,color:'var(--text)',userSelect:'none'} }, draft.stock_count),
-                            h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:(draft.stock_count||0)+1});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '+')
+                            h('button', { onClick:e=>{e.stopPropagation();const before=orderQty;setOrderQty(q=>Math.max(1,q-1));scheduleAutoSave(draft,before);}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '\u2212'),
+                            h('span', { style:{minWidth:24,textAlign:'center',fontSize:13,fontWeight:700,color:'var(--text)',userSelect:'none'} }, orderQty),
+                            h('button', { onClick:e=>{e.stopPropagation();const before=orderQty;setOrderQty(q=>q+1);scheduleAutoSave(draft,before);}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '+')
                           )
                         ),
                         h('div', null,
@@ -7149,17 +7325,166 @@ function App() {
                 : h('div', null,
                     h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, '\ud83d\uded2 Pending Order List'),
                     h('div', { ref: stockUnitsSentinelRef, style:{height:0} }),
-                    h('p', {
+                    h('div', {
+                      ref: stockUnitsRowRef,
                       style:{
-                        fontSize:11,color:'var(--muted)',
+                        display:'flex', alignItems:'center', justifyContent:'flex-start', gap:8,
                         marginTop:stockUnitsLineStuck?0:3,
                         marginBottom:14,
                         position:'sticky', top:Math.max(0, stockStickyHeaderH - 2), zIndex:90,
                         background:'var(--bg)', paddingBottom:4, paddingTop:0
                       }
-                    }, explicitOrderList.length+' product'+(explicitOrderList.length!==1?'s':'')+' \u2014 '+explicitOrderList.reduce((sum,p)=>sum+(orderQtys[p.id]||1),0)+' unit'+(explicitOrderList.reduce((sum,p)=>sum+(orderQtys[p.id]||1),0)!==1?'s':'')),
-                    h('div', { style:{border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',background:'var(--surface)'} },
+                    },
+                      h('span', { style:{fontSize:11,color:'var(--muted)'} }, explicitOrderList.length+' product'+(explicitOrderList.length!==1?'s':'')+' \u2014 '+explicitOrderList.reduce((sum,p)=>sum+(orderQtys[p.id]||1),0)+' unit'+(explicitOrderList.reduce((sum,p)=>sum+(orderQtys[p.id]||1),0)!==1?'s':'')),
+                      h(QueueViewToggle, { mode:lowViewMode, setMode:setLowViewMode })
+                    ),
+                    lowViewMode === 'product' && h('div', { style:{border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',background:'var(--surface)'} },
                       explicitOrderList.map(p => renderCard(p, p.stock_count === 0))
+                    ),
+                    lowViewMode === 'link' && h('div', { style:{display:'flex',flexDirection:'column',gap:8} },
+                      (()=>{
+                        const groups = [];
+                        const seen = {};
+                        [...explicitOrderList].forEach(p => {
+                          const key = p.qr_link_url || '__none__';
+                          if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
+                          groups.find(g=>g.key===key).items.push(p);
+                        });
+                        groups.sort((a,b) => a.key==='__none__' ? 1 : b.key==='__none__' ? -1 : 0);
+                        return groups.map(({ key, items }) => {
+                          const expanded = pendingQrGroupExpanded[key] !== false;
+                          const totalUnits = items.reduce((s,p)=>s+(orderQtys[p.id]||1),0);
+                          const repP = items[0];
+                          const _s = suppliers.find(s=>s.name===repP.supplier);
+                          const _thumb = _s && (_s.logoUrl || _s.imageUrl);
+                          const { groupRevealed, onGroupDown, onGroupMove, onGroupUp, groupHoldBar, groupRemoveBtn } = useGroupSwipe('qrgrp:'+key, items.map(it=>it.id));
+                          return h('div', { key },
+                            h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
+                              /* group header */
+                              h('div', {
+                                ref: measureGroupHeaderRef,
+                                style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
+                                onClick:()=>{ if(groupRevealed) return; setPendingQrGroupExpanded(prev=>({...prev,[key]:!expanded})); },
+                                onMouseDown:onGroupDown, onMouseMove:onGroupMove, onMouseUp:onGroupUp,
+                                onTouchStart:onGroupDown, onTouchMove:onGroupMove, onTouchEnd:onGroupUp, onTouchCancel:onGroupUp,
+                                onMouseEnter:e=>{ if(!groupRevealed) e.currentTarget.style.background='var(--amber-light)'; },
+                                onMouseLeave:e=>{ onGroupUp(); if(!groupRevealed) e.currentTarget.style.background='var(--surface)'; },
+                              },
+                                groupHoldBar,
+                                /* QR thumbnail */
+                                h('div', {
+                                  style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:key==='__none__'?'1px dashed var(--border)':'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:key!=='__none__'?'zoom-in':'default'},
+                                  onClick:e=>{ e.stopPropagation(); if(key!=='__none__') setQrLightbox({url:key,id:repP.id}); }
+                                },
+                                  key!=='__none__'
+                                    ? h('img',{src:key,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}})
+                                    : h('div',{style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'var(--muted)',pointerEvents:'none'}},
+                                        h('svg',{xmlns:'http://www.w3.org/2000/svg',width:22,height:22,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
+                                          h('rect',{x:'3',y:'3',width:'7',height:'7',rx:'1'}),h('rect',{x:'14',y:'3',width:'7',height:'7',rx:'1'}),h('rect',{x:'3',y:'14',width:'7',height:'7',rx:'1'}),
+                                          h('rect',{x:'14',y:'14',width:'3',height:'3',rx:'0.5'}),h('rect',{x:'19',y:'14',width:'2',height:'2',rx:'0.5'}),h('rect',{x:'14',y:'19',width:'2',height:'2',rx:'0.5'}),h('rect',{x:'19',y:'19',width:'2',height:'2',rx:'0.5'})
+                                        ),
+                                        h('span',{style:{fontSize:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'No QR')
+                                      )
+                                ),
+                                /* supplier + counts */
+                                h('div', { style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:5} },
+                                  h('div', { style:{display:'flex',alignItems:'center',gap:8} },
+                                    _thumb
+                                      ? h('img',{src:_thumb,style:{width:28,height:28,borderRadius:6,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                                      : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--muted)'}},'🏬'),
+                                    h('span',{style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140,display:'inline-block'}},
+                                      repP.supplier || h('em',{style:{color:'var(--muted)',fontWeight:400,fontSize:12}},'No supplier'))
+                                  ),
+                                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                                    h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
+                                    h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
+                                  )
+                                ),
+                                groupRemoveBtn
+                              ),
+                              /* expanded rows */
+                              expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
+                        h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
+                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                                  items.map((p, idx) => renderCard(p, p.stock_count === 0, true, idx===0, idx===items.length-1))
+                                )
+                              )
+                            )
+                          );
+                        });
+                      })()
+                    ),
+                    lowViewMode === 'supplier' && h('div', { style:{display:'flex',flexDirection:'column',gap:8} },
+                      (()=>{
+                        const groups = [];
+                        const seen = {};
+                        [...explicitOrderList].forEach(p => {
+                          const key = p.supplier || '__none__';
+                          if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
+                          groups.find(g=>g.key===key).items.push(p);
+                        });
+                        groups.sort((a,b) => a.key==='__none__' ? 1 : b.key==='__none__' ? -1 : 0);
+                        return groups.map(({ key, items }) => {
+                          const expanded = pendingSupGroupExpanded[key] !== false;
+                          const totalUnits = items.reduce((s,p)=>s+(orderQtys[p.id]||1),0);
+                          const _s = key !== '__none__' ? suppliers.find(s=>s.name===key) : null;
+                          const supplierImgUrl  = _s?.imageUrl || null;
+                          const supplierLogoUrl = _s?.logoUrl  || null;
+                          const { groupRevealed, onGroupDown, onGroupMove, onGroupUp, groupHoldBar, groupRemoveBtn } = useGroupSwipe('supgrp:'+key, items.map(it=>it.id));
+                          return h('div', { key },
+                            h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
+                              /* group header */
+                              h('div', {
+                                ref: measureGroupHeaderRef,
+                                style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
+                                onClick:()=>{ if(groupRevealed) return; setPendingSupGroupExpanded(prev=>({...prev,[key]:!expanded})); },
+                                onMouseDown:onGroupDown, onMouseMove:onGroupMove, onMouseUp:onGroupUp,
+                                onTouchStart:onGroupDown, onTouchMove:onGroupMove, onTouchEnd:onGroupUp, onTouchCancel:onGroupUp,
+                                onMouseEnter:e=>{ if(!groupRevealed) e.currentTarget.style.background='var(--amber-light)'; },
+                                onMouseLeave:e=>{ onGroupUp(); if(!groupRevealed) e.currentTarget.style.background='var(--surface)'; },
+                              },
+                                groupHoldBar,
+                                /* supplier imageUrl — big thumbnail on the left */
+                                h('div', {
+                                  style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:supplierImgUrl?'1px solid var(--border)':'1px dashed var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:supplierImgUrl?'zoom-in':'default'},
+                                  onClick:e=>{ e.stopPropagation(); if(supplierImgUrl) setSavedSupplierImgPreviewUrl(supplierImgUrl); }
+                                },
+                                  supplierImgUrl
+                                    ? h('img',{src:supplierImgUrl,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}})
+                                    : h('div',{style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'var(--muted)',pointerEvents:'none'}},
+                                        h('span',{style:{fontSize:20}},'🏬'),
+                                        key!=='__none__' && h('span',{style:{fontSize:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'No img')
+                                      )
+                                ),
+                                /* logo + name + counts */
+                                h('div', { style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:5} },
+                                  h('div', { style:{display:'flex',alignItems:'center',gap:8} },
+                                    key !== '__none__'
+                                      ? (supplierLogoUrl
+                                          ? h('img',{src:supplierLogoUrl,style:{width:28,height:28,borderRadius:6,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                                          : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--muted)'}},'?'))
+                                      : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--muted)'}},'🏬'),
+                                    h('span',{style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140,display:'inline-block'}},
+                                      key !== '__none__' ? key : h('em',{style:{color:'var(--muted)',fontWeight:400,fontSize:12}},'No supplier'))
+                                  ),
+                                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                                    h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
+                                    h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
+                                  )
+                                ),
+                                groupRemoveBtn
+                              ),
+                              /* expanded rows */
+                              expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
+                        h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
+                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                                  items.map((p, idx) => renderCard(p, p.stock_count === 0, true, idx===0, idx===items.length-1))
+                                )
+                              )
+                            )
+                          );
+                        });
+                      })()
                     )
                   );
             }
@@ -7171,50 +7496,61 @@ function App() {
               setPurchaseOrders(validPurchaseOrders);
               localStorage.setItem('purchaseOrders', JSON.stringify(validPurchaseOrders));
             }
-            return validPurchaseOrders.length === 0
-              ? h('div', { style:{textAlign:'center',padding:'72px 20px'} },
-                  h('div', { style:{fontSize:52,marginBottom:12} }, '\ud83d\udccb'),
-                  h('p', { style:{fontSize:16,fontWeight:600,color:'var(--text)',marginBottom:6} }, 'No purchase orders yet'),
-                  h('p', { style:{fontSize:13,color:'var(--muted)',marginBottom:products.length===0?16:0} }, 'Click "Purchase Order" on any item in the Pending Order tab to add it here.'),
-                  products.length === 0 && h('div', { style:{display:'flex',gap:8,justifyContent:'center'} },
-                    h('button', { className:'btn-ghost', style:{fontSize:11,padding:'5px 11px'}, onClick:()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='.json'; inp.onchange=doImport; inp.click(); } }, '⬆ Import existing data')
-                  )
-                )
-              : h('div', null,
-                  h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, '\ud83d\udccb Purchase Orders'),
-                  h('div', { ref: stockUnitsSentinelRef, style:{height:0} }),
-                  h('p', {
-                    style:{
-                      fontSize:11,color:'var(--muted)',
-                      marginTop:stockUnitsLineStuck?0:3,
-                      marginBottom:14,
-                      position:'sticky', top:Math.max(0, stockStickyHeaderH - 2), zIndex:90,
-                      background:'var(--bg)', paddingBottom:4, paddingTop:0
-                    }
-                  }, validPurchaseOrders.length+' product'+(validPurchaseOrders.length!==1?'s':'')+' \u2014 '+validPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)+' unit'+(validPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)!==1?'s':'')),
-                  h('div', { style:{border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',background:'var(--surface)'} },
-                    validPurchaseOrders.map(o => {
+            const renderPOCard = (o, inGroup, isFirst, isLast) => {
+                      const rowRadius = inGroup ? (isFirst && isLast ? '10px' : isFirst ? '10px 10px 0 0' : isLast ? '0 0 10px 10px' : '0') : '0';
                       const isHl = highlightedOrderId === o.id;
                       const isTarget = ocSwipe.id === o.id;
                       const swipeOff = isTarget ? Math.min(0, ocSwipe.offset) : 0;
                       const isHoldingThis = ocHold.id === o.id;
                       /* ── expand / collapse (same logic as Low & Pending sub-tabs) ── */
                       const liveProduct = products.find(pr => pr.id === o.id) || o;
+                      const mergedO = mergeReorderInfo(liveProduct);
+                      const setOrderedQty = fn => setPurchaseOrders(prev => {
+                        const next = prev.map(x => x.id === o.id ? { ...x, qty: Math.max(1, typeof fn==='function' ? fn(x.qty) : fn) } : x);
+                        localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                        return next;
+                      });
                       const rowExpanded = expandedStockId === o.id;
-                      const draft = rowExpanded ? (stockEditDraft || liveProduct) : liveProduct;
-                      const upd = (patch) => setStockEditDraft(d => d ? {...d, ...patch} : {...liveProduct, ...patch});
+                      const draft = rowExpanded ? (stockEditDraft || mergedO) : mergedO;
+                      const commitDraft = (finalDraft) => {
+                        const { id, stock_count, _supDropOpen, ...patch } = finalDraft;
+                        setReorderInfo(prev => ({ ...prev, [o.id]: { ...(prev[o.id]||{}), ...patch } }));
+                      };
+                      const scheduleAutoSave = (finalDraft, qtySnapshot) => {
+                        let bucket = reorderAutoSaveTimers.current[o.id];
+                        if (!bucket) {
+                          bucket = { prevInfo: reorderInfo[o.id] ? {...reorderInfo[o.id]} : null, prevQty: qtySnapshot !== undefined ? qtySnapshot : o.qty };
+                          reorderAutoSaveTimers.current[o.id] = bucket;
+                        }
+                        clearTimeout(bucket.timer);
+                        bucket.timer = setTimeout(() => {
+                          commitDraft(finalDraft);
+                          const { prevInfo, prevQty } = bucket;
+                          delete reorderAutoSaveTimers.current[o.id];
+                          showToast('✅ Changes saved', 'success', () => {
+                            setReorderInfo(prev => {
+                              const next = { ...prev };
+                              if (prevInfo) next[o.id] = prevInfo; else delete next[o.id];
+                              return next;
+                            });
+                            setOrderedQty(prevQty);
+                            setStockEditDraft(d => d ? { ...mergeReorderInfo(liveProduct), ...(prevInfo||{}) } : d);
+                          });
+                        }, 700);
+                      };
+                      const upd = (patch) => setStockEditDraft(d => {
+                        const next = d ? {...d, ...patch} : {...mergedO, ...patch};
+                        scheduleAutoSave(next);
+                        return next;
+                      });
                       const toggleExpand = () => {
                         if (swipeOff !== 0) return;
                         if (rowExpanded) { setExpandedStockId(null); setStockEditDraft(null); }
-                        else { setExpandedStockId(o.id); setStockEditDraft({...liveProduct}); }
+                        else { setExpandedStockId(o.id); setStockEditDraft({...mergedO}); }
                       };
-                      const cancelEdit = () => { setStockEditDraft({...liveProduct}); };
-                      const saveEdit = () => {
-                        const updated = { ...draft };
-                        setProducts(prev => { const next = prev.map(item => item.id === o.id ? { ...item, ...updated } : item); persistProducts(next); return next; });
-                        setStockEditDraft({...updated});
-                      };
-                      const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(liveProduct) : false;
+                      const cancelEdit = () => { setStockEditDraft({...mergedO}); };
+                      const saveEdit = () => { commitDraft(draft); };
+                      const isDirty = rowExpanded && stockEditDraft ? JSON.stringify(stockEditDraft) !== JSON.stringify(mergedO) : false;
                       const lbl = (text) => h('label', { style:{fontSize:10,fontWeight:600,textTransform:'uppercase',letterSpacing:'0.05em',color:'var(--muted)',display:'block',marginBottom:3} }, text);
                       const handleStockImgReplace = (e) => { const file = e.target.files?.[0]; if (!file) return; resizeImage(file).then(dataUrl => upd({ image_url: dataUrl })).catch(()=>{}); e.target.value = ''; };
                       const onDown = e => {
@@ -7240,10 +7576,8 @@ function App() {
                         setOrderingIds(nextOrdering);
                         localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
                       };
-                      return h('div', { key:o.id, 'data-oc-row':true, style:{ position:'relative', borderBottom:'1px solid var(--border)' } },
-                        /* overflow:hidden scoped to row only so the expand panel isn't clipped */
-                        h('div', { style:{ overflow:'hidden' } },
-                          h('div', {
+                      return h('div', { key:o.id, 'data-oc-row':true, style:{ position:'relative' } },
+                        h('div', {
                             onMouseDown:onDown, onMouseMove:onMove, onMouseUp:onUp,
                             onClick: toggleExpand,
                             onMouseEnter: e => { if (!rowExpanded && !isHl) e.currentTarget.style.background='var(--amber-light)'; },
@@ -7251,9 +7585,10 @@ function App() {
                             onTouchStart:onDown, onTouchMove:onMove, onTouchEnd:onUp, onTouchCancel:onUp,
                             style:{
                               position:'relative', zIndex:1,
-                              background: rowExpanded ? 'var(--amber-light)' : isHl ? '#dcfce7' : 'var(--surface)',
+                              background: rowExpanded ? (darkMode ? 'var(--bg)' : 'var(--amber-light)') : isHl ? '#dcfce7' : 'var(--surface)',
                               padding:'8px 12px', display:'grid', gridTemplateColumns:'38px 1fr auto', gap:10, alignItems:'center',
-                              userSelect:'none', cursor:'pointer',
+                              userSelect:'none', cursor:'pointer', borderRadius: rowRadius,
+                              ...(inGroup && rowExpanded ? { position:'sticky', top:Math.max(0, stockStickyHeaderH + stockUnitsRowH + groupHeaderH - 2), zIndex:70 } : {}),
                             }
                           },
                           isHoldingThis && h('div', {
@@ -7262,12 +7597,12 @@ function App() {
                               background:'var(--amber)', zIndex:2, pointerEvents:'none',
                             }
                           }),
-                            h('div', { style:{width:38,height:38,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0,opacity:o.image_url?1:0.3} },
-                              o.image_url ? h('img', { src:o.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
+                            h('div', { style:{width:38,height:38,borderRadius:6,overflow:'hidden',background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,flexShrink:0,opacity:mergedO.image_url?1:0.3} },
+                              mergedO.image_url ? h('img', { src:mergedO.image_url, style:{width:'100%',height:'100%',objectFit:'contain'} }) : '\ud83d\udce6'
                             ),
                             h('div', { style:{minWidth:0} },
-                              h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, o.product_name),
-                              h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (o.product_type ? o.product_type+', ' : '') + (o.category||'Uncategorized')),
+                              h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, mergedO.product_name),
+                              h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (mergedO.product_type ? mergedO.product_type+', ' : '') + (mergedO.category||'Uncategorized')),
                               h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:3} }, 'Qty ordered: ',
                                 h('span', { style:{fontWeight:700,color:'var(--text)'} }, o.qty)
                               )
@@ -7300,23 +7635,15 @@ function App() {
                                 style:{
                                   position:'absolute', top:0, bottom:0, left:'calc(100% + 15px)', width:90,
                                   background:'#dc2626', display:'flex', alignItems:'center', justifyContent:'center',
-                                  color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer'
+                                  color:'#fff', fontSize:11, fontWeight:700, cursor:'pointer',
+                                  opacity: swipeOff!==0 ? 1 : 0, pointerEvents: swipeOff!==0 ? 'auto' : 'none',
+                                  transition: swipeOff===0 ? 'opacity 0.2s ease' : 'none',
                                 }
                               }, 'Undo')
                             )
-                          )
-                        ),
-                        /* ── expanded edit panel (mirrors Low & Pending sub-tabs) ── */
-                        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background:'var(--surface)'} },
-                          h('div', { style:{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:12} },
-                            h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:e=>{ e.stopPropagation(); cancelEdit(); } }, 'Discard'),
-                            h('button', {
-                              className: (isDirty ? 'btn-amber save-changes-glow' : 'btn-ghost'),
-                              style:{fontSize:12,padding:'6px 14px',transition:'background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease'},
-                              onClick:e=>{ e.stopPropagation(); if(isDirty) saveEdit(); },
-                              disabled: !isDirty
-                            }, 'Save changes')
                           ),
+                        /* ── expanded edit panel (mirrors Low & Pending sub-tabs) ── */
+                        rowExpanded && h('div', { style:{borderTop:'1px solid var(--border)',padding:'14px 14px 16px',background: darkMode ? 'var(--bg)' : 'var(--amber-light)'} },
                           h('div', { style:{display:'grid',gridTemplateColumns:'110px minmax(0,1fr)',gap:'10px 14px',marginBottom:12} },
                             h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:8} },
                               h('div', { style:{position:'relative',width:110,height:110,borderRadius:10,overflow:'hidden',border:'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',flexShrink:0,cursor:'pointer'}, className:'img-box-animated', title:'Click to replace image',
@@ -7368,9 +7695,9 @@ function App() {
                                 h('div', null,
                                   lbl('Stock Qty'),
                                   h('div', { style:{display:'flex',alignItems:'center',gap:6} },
-                                    h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:Math.max(0,(draft.stock_count||0)-1)});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '\u2212'),
-                                    h('span', { style:{minWidth:24,textAlign:'center',fontSize:13,fontWeight:700,color:'var(--text)',userSelect:'none'} }, draft.stock_count),
-                                    h('button', { onClick:e=>{e.stopPropagation();upd({stock_count:(draft.stock_count||0)+1});}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '+')
+                                    h('button', { onClick:e=>{e.stopPropagation();const before=o.qty;setOrderedQty(q=>Math.max(1,q-1));scheduleAutoSave(draft,before);}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '\u2212'),
+                                    h('span', { style:{minWidth:24,textAlign:'center',fontSize:13,fontWeight:700,color:'var(--text)',userSelect:'none'} }, o.qty),
+                                    h('button', { onClick:e=>{e.stopPropagation();const before=o.qty;setOrderedQty(q=>q+1);scheduleAutoSave(draft,before);}, style:{width:28,height:28,borderRadius:6,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0} }, '+')
                                   )
                                 ),
                                 h('div', null,
@@ -7459,7 +7786,162 @@ function App() {
                           )
                         )
                       );
-                    })
+            };
+            return validPurchaseOrders.length === 0
+              ? h('div', { style:{textAlign:'center',padding:'72px 20px'} },
+                  h('div', { style:{fontSize:52,marginBottom:12} }, '📋'),
+                  h('p', { style:{fontSize:16,fontWeight:600,color:'var(--text)',marginBottom:6} }, 'No purchase orders yet'),
+                  h('p', { style:{fontSize:13,color:'var(--muted)',marginBottom:products.length===0?16:0} }, 'Click "Purchase Order" on any item in the Pending Order tab to add it here.'),
+                  products.length === 0 && h('div', { style:{display:'flex',gap:8,justifyContent:'center'} },
+                    h('button', { className:'btn-ghost', style:{fontSize:11,padding:'5px 11px'}, onClick:()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='.json'; inp.onchange=doImport; inp.click(); } }, '⬆ Import existing data')
+                  )
+                )
+              : h('div', null,
+                  h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, '📋 Purchase Orders'),
+                  h('div', { ref: stockUnitsSentinelRef, style:{height:0} }),
+                  h('div', {
+                    ref: stockUnitsRowRef,
+                    style:{
+                      display:'flex', alignItems:'center', justifyContent:'flex-start', gap:8,
+                      marginTop:stockUnitsLineStuck?0:3,
+                      marginBottom:14,
+                      position:'sticky', top:Math.max(0, stockStickyHeaderH - 2), zIndex:90,
+                      background:'var(--bg)', paddingBottom:4, paddingTop:0
+                    }
+                  },
+                    h('span', { style:{fontSize:11,color:'var(--muted)'} }, validPurchaseOrders.length+' product'+(validPurchaseOrders.length!==1?'s':'')+' — '+validPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)+' unit'+(validPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)!==1?'s':'')),
+                    h(QueueViewToggle, { mode:lowViewMode, setMode:setLowViewMode })
+                  ),
+                  lowViewMode === 'product' && h('div', { style:{border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',background:'var(--surface)'} },
+                    validPurchaseOrders.map(o => renderPOCard(o))
+                  ),
+                  lowViewMode === 'link' && h('div', { style:{display:'flex',flexDirection:'column',gap:8} },
+                    (()=>{
+                      const groups = [];
+                      const seen = {};
+                      [...validPurchaseOrders].forEach(o => {
+                        const key = (products.find(pr=>pr.id===o.id)||o).qr_link_url || '__none__';
+                        if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
+                        groups.find(g=>g.key===key).items.push(o);
+                      });
+                      groups.sort((a,b) => a.key==='__none__' ? 1 : b.key==='__none__' ? -1 : 0);
+                      return groups.map(({ key, items }) => {
+                        const expanded = purchaseQrGroupExpanded[key] !== false;
+                        const totalUnits = items.reduce((s,o)=>s+o.qty,0);
+                        const repO = items[0];
+                        const repLive = products.find(pr=>pr.id===repO.id)||repO;
+                        const _s = suppliers.find(s=>s.name===repLive.supplier);
+                        const _thumb = _s && (_s.logoUrl || _s.imageUrl);
+                        return h('div', { key },
+                          h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
+                            h('div', {
+                              ref: measureGroupHeaderRef,
+                              style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
+                              onClick:()=>setPurchaseQrGroupExpanded(prev=>({...prev,[key]:!expanded})),
+                              onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
+                              onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
+                            },
+                              h('div', {
+                                style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:key==='__none__'?'1px dashed var(--border)':'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:key!=='__none__'?'zoom-in':'default'},
+                                onClick:e=>{ e.stopPropagation(); if(key!=='__none__') setQrLightbox({url:key,id:repO.id}); }
+                              },
+                                key!=='__none__'
+                                  ? h('img',{src:key,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}})
+                                  : h('div',{style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'var(--muted)',pointerEvents:'none'}},
+                                      h('svg',{xmlns:'http://www.w3.org/2000/svg',width:22,height:22,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.5,strokeLinecap:'round',strokeLinejoin:'round'},
+                                        h('rect',{x:'3',y:'3',width:'7',height:'7',rx:'1'}),h('rect',{x:'14',y:'3',width:'7',height:'7',rx:'1'}),h('rect',{x:'3',y:'14',width:'7',height:'7',rx:'1'}),
+                                        h('rect',{x:'14',y:'14',width:'3',height:'3',rx:'0.5'}),h('rect',{x:'19',y:'14',width:'2',height:'2',rx:'0.5'}),h('rect',{x:'14',y:'19',width:'2',height:'2',rx:'0.5'}),h('rect',{x:'19',y:'19',width:'2',height:'2',rx:'0.5'})
+                                      ),
+                                      h('span',{style:{fontSize:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'No QR')
+                                    )
+                              ),
+                              h('div', { style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:5} },
+                                h('div', { style:{display:'flex',alignItems:'center',gap:8} },
+                                  _thumb
+                                    ? h('img',{src:_thumb,style:{width:28,height:28,borderRadius:6,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                                    : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--muted)'}},'🏬'),
+                                  h('span',{style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140,display:'inline-block'}},
+                                    repLive.supplier || h('em',{style:{color:'var(--muted)',fontWeight:400,fontSize:12}},'No supplier'))
+                                ),
+                                h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                                  h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
+                                  h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
+                                )
+                              )
+                            ),
+                            expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
+                        h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
+                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                                items.map((o, idx) => renderPOCard(o, true, idx===0, idx===items.length-1))
+                              )
+                            )
+                          )
+                        );
+                      });
+                    })()
+                  ),
+                  lowViewMode === 'supplier' && h('div', { style:{display:'flex',flexDirection:'column',gap:8} },
+                    (()=>{
+                      const groups = [];
+                      const seen = {};
+                      [...validPurchaseOrders].forEach(o => {
+                        const key = (products.find(pr=>pr.id===o.id)||o).supplier || '__none__';
+                        if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
+                        groups.find(g=>g.key===key).items.push(o);
+                      });
+                      groups.sort((a,b) => a.key==='__none__' ? 1 : b.key==='__none__' ? -1 : 0);
+                      return groups.map(({ key, items }) => {
+                        const expanded = purchaseSupGroupExpanded[key] !== false;
+                        const totalUnits = items.reduce((s,o)=>s+o.qty,0);
+                        const _s = key !== '__none__' ? suppliers.find(s=>s.name===key) : null;
+                        const supplierImgUrl  = _s?.imageUrl || null;
+                        const supplierLogoUrl = _s?.logoUrl  || null;
+                        return h('div', { key },
+                          h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
+                            h('div', {
+                              ref: measureGroupHeaderRef,
+                              style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
+                              onClick:()=>setPurchaseSupGroupExpanded(prev=>({...prev,[key]:!expanded})),
+                              onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
+                              onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
+                            },
+                              h('div', {
+                                style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:supplierImgUrl?'1px solid var(--border)':'1px dashed var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:supplierImgUrl?'zoom-in':'default'},
+                                onClick:e=>{ e.stopPropagation(); if(supplierImgUrl) setSavedSupplierImgPreviewUrl(supplierImgUrl); }
+                              },
+                                supplierImgUrl
+                                  ? h('img',{src:supplierImgUrl,style:{width:'100%',height:'100%',objectFit:'contain',display:'block'}})
+                                  : h('div',{style:{width:'100%',height:'100%',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,color:'var(--muted)',pointerEvents:'none'}},
+                                      h('span',{style:{fontSize:20}},'🏬'),
+                                      key!=='__none__' && h('span',{style:{fontSize:8,textTransform:'uppercase',letterSpacing:'0.05em'}},'No img')
+                                    )
+                              ),
+                              h('div', { style:{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:5} },
+                                h('div', { style:{display:'flex',alignItems:'center',gap:8} },
+                                  key !== '__none__'
+                                    ? (supplierLogoUrl
+                                        ? h('img',{src:supplierLogoUrl,style:{width:28,height:28,borderRadius:6,objectFit:'cover',flexShrink:0,border:'1px solid var(--border)'}})
+                                        : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,color:'var(--muted)'}},'?'))
+                                    : h('div',{style:{width:28,height:28,borderRadius:6,background:'var(--border)',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--muted)'}},'🏬'),
+                                  h('span',{style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140,display:'inline-block'}},
+                                    key !== '__none__' ? key : h('em',{style:{color:'var(--muted)',fontWeight:400,fontSize:12}},'No supplier'))
+                                ),
+                                h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                                  h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
+                                  h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
+                                )
+                              )
+                            ),
+                            expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
+                        h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
+                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                                items.map((o, idx) => renderPOCard(o, true, idx===0, idx===items.length-1))
+                              )
+                            )
+                          )
+                        );
+                      });
+                    })()
                   )
                 );
           })()),
@@ -7711,16 +8193,17 @@ function App() {
 
   /* ── REPORT PAGE ── */
   if (view==='report') {
-    const totalProducts = products.length;
-    const totalUnits = products.reduce((s,p) => s+p.stock_count, 0);
-    const totalValue = products.reduce((s,p) => s+(p.estimated_price||0)*p.stock_count, 0);
-    const outOfStockItems = products.filter(p => p.stock_count===0);
-    const lowStockItems = products.filter(p => p.stock_count>0 && (lowStockOp==='lte' ? p.stock_count<=lowStockN : p.stock_count<lowStockN));
+    const reportProducts = products.filter(p => !p.pending_new);
+    const totalProducts = reportProducts.length;
+    const totalUnits = reportProducts.reduce((s,p) => s+p.stock_count, 0);
+    const totalValue = reportProducts.reduce((s,p) => s+(p.estimated_price||0)*p.stock_count, 0);
+    const outOfStockItems = reportProducts.filter(p => p.stock_count===0);
+    const lowStockItems = reportProducts.filter(p => p.stock_count>0 && (lowStockOp==='lte' ? p.stock_count<=lowStockN : p.stock_count<lowStockN));
     const catBreakdown = categories.map(cat => {
-      const catProds = products.filter(p => p.category===cat);
+      const catProds = reportProducts.filter(p => p.category===cat);
       return { cat, count: catProds.length, units: catProds.reduce((s,p)=>s+p.stock_count,0), value: catProds.reduce((s,p)=>s+(p.estimated_price||0)*p.stock_count,0) };
     }).filter(c => c.count>0).sort((a,b)=>b.value-a.value);
-    const topProducts = [...products].sort((a,b)=>(b.estimated_price||0)*b.stock_count-(a.estimated_price||0)*a.stock_count).slice(0,5);
+    const topProducts = [...reportProducts].sort((a,b)=>(b.estimated_price||0)*b.stock_count-(a.estimated_price||0)*a.stock_count).slice(0,5);
     const recentProducts = [...products].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,5);
     const fmt = n => '$'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
 
@@ -10698,7 +11181,7 @@ function App() {
 
       h('div', { className:'stats-grid', style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12} },
         [
-          { label:'Total products', value:products.length },
+          { label:'Total products', value:catalogProducts.length },
           { label:'Units in stock', value:totalStock },
           { label:'Categories', value:categories.length, sub:'click to manage', clickable:true, action:'catmgr' },
           { label:'Out of stock', value:outOfStock, red:outOfStock>0, clickable:true, sub:'click to view', action:'lowstock' },
@@ -10732,13 +11215,13 @@ function App() {
         ),
         h(LayoutToggle, { layout, setLayout:changeLayout })
       ),
-      products.length > 0 && h('p', { className: 'product-count-label' + (showCount ? '' : ' hidden'), style:{fontSize:12,color:'var(--muted)',marginBottom:0} },
-        `${filtered.filter(p=>p.stock_count>=1).length} of ${products.length} product${products.length!==1?'s':''}`,
+      catalogProducts.length > 0 && h('p', { className: 'product-count-label' + (showCount ? '' : ' hidden'), style:{fontSize:12,color:'var(--muted)',marginBottom:0} },
+        `${filtered.filter(p=>p.stock_count>=1).length} of ${catalogProducts.length} product${catalogProducts.length!==1?'s':''}`,
         catFilter!=='All'?` in ${catFilter}`:'', search?` matching "${search}"`:''
       ),
     ),
 
-    products.length === 0
+    catalogProducts.length === 0
       ? h('div', { style:{textAlign:'center',padding:'72px 20px'} },
           h('div', { style:{fontSize:48,opacity:0.15,marginBottom:12} }, '📦'),
           h('p', { style:{fontSize:15,color:'var(--muted)',marginBottom:6} }, 'No products yet'),
