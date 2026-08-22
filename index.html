@@ -7246,8 +7246,8 @@ function App() {
                       background: rowExpanded ? (darkMode ? 'var(--bg)' : 'var(--amber-light)') : (isUndoHighlighted||isHighlighted) ? 'var(--amber-light)' : 'var(--surface)',
                       padding:'8px 12px', display:'grid', gridTemplateColumns:'44px 1fr auto', gap:10, alignItems:'center',
                       boxShadow:(isUndoHighlighted||isHighlighted)?'inset 0 0 0 2px var(--amber)':'none',
-                      userSelect:'none', cursor:'pointer', borderRadius: rowRadius,
-                      ...(inGroup && rowExpanded ? { position:'sticky', top:Math.max(0, stockStickyHeaderH + stockUnitsRowH + groupHeaderH - 2), zIndex:70 } : {}),
+                      userSelect:'none', cursor:'pointer', borderRadius: rowRadius, overflow:'hidden',
+                      ...(inGroup && rowExpanded ? { position:'sticky', top:Math.max(0, stockStickyHeaderH + stockUnitsRowH + groupHeaderH - 2), zIndex:70, transform:'translateZ(0)', WebkitTransform:'translateZ(0)', WebkitBackfaceVisibility:'hidden', backfaceVisibility:'hidden' } : {}),
                     }
                   },
                   isHoldingThis && h('div', {
@@ -7569,7 +7569,7 @@ function App() {
                               /* expanded rows */
                               expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
+                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
                                   items.map((p, idx) => renderCard(p, p.stock_count === 0, true, idx===0, idx===items.length-1))
                                 )
                               )
@@ -7651,7 +7651,7 @@ function App() {
                               /* expanded rows */
                               expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
+                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
                                   items.map((p, idx) => renderCard(p, p.stock_count === 0, true, idx===0, idx===items.length-1))
                                 )
                               )
@@ -7789,8 +7789,8 @@ function App() {
                               position:'relative', zIndex:1,
                               background: rowExpanded ? (darkMode ? 'var(--bg)' : 'var(--amber-light)') : isHl ? '#dcfce7' : 'var(--surface)',
                               padding:'8px 12px', display:'grid', gridTemplateColumns:'38px 1fr auto', gap:10, alignItems:'center',
-                              userSelect:'none', cursor:'pointer', borderRadius: rowRadius,
-                              ...(inGroup && rowExpanded ? { position:'sticky', top:Math.max(0, stockStickyHeaderH + stockUnitsRowH + groupHeaderH - 2), zIndex:70 } : {}),
+                              userSelect:'none', cursor:'pointer', borderRadius: rowRadius, overflow:'hidden',
+                              ...(inGroup && rowExpanded ? { position:'sticky', top:Math.max(0, stockStickyHeaderH + stockUnitsRowH + groupHeaderH - 2), zIndex:70, transform:'translateZ(0)', WebkitTransform:'translateZ(0)', WebkitBackfaceVisibility:'hidden', backfaceVisibility:'hidden' } : {}),
                             }
                           },
                           isHoldingThis && h('div', {
@@ -7805,7 +7805,7 @@ function App() {
                             h('div', { style:{minWidth:0} },
                               h('div', { style:{fontSize:12,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, mergedO.product_name),
                               h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:1} }, (mergedO.product_type ? mergedO.product_type+', ' : '') + (mergedO.category||'Uncategorized')),
-                              h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:3} }, 'Qty ordered: ',
+                              h('div', { style:{fontSize:10,color:'var(--muted)',marginTop:3} }, 'Qty: ',
                                 h('span', { style:{fontWeight:700,color:'var(--text)'} }, o.qty)
                               )
                             ),
@@ -8180,7 +8180,7 @@ function App() {
                             ),
                             expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
+                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
                                 items.map((o, idx) => renderPOCard(o, true, idx===0, idx===items.length-1))
                               )
                             )
@@ -8278,7 +8278,7 @@ function App() {
                             ),
                             expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
+                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
                                 items.map((o, idx) => renderPOCard(o, true, idx===0, idx===items.length-1))
                               )
                             )
