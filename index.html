@@ -718,6 +718,20 @@ html.dark .header-queue-badge .q-count {
   flex-shrink: 0;
 }
 .left-nav .nav-spacer { flex: 1; }
+.left-nav .nav-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.left-nav .nav-scroll::-webkit-scrollbar { display: none; }
 .nav-item {
   width: 46px;
   height: 46px;
@@ -803,6 +817,40 @@ html.dark .nav-item .nav-badge {
   .nav-item .nav-label { display: none; }
   .nav-store-name { display: none; }
   .with-left-nav { margin-left: 40px !important; }
+
+  .nav-toggle-btn {
+    display: flex !important;
+  }
+  .left-nav {
+    transition: transform 0.2s ease;
+  }
+  html.nav-hidden .left-nav {
+    transform: translateX(-100%);
+  }
+  html.nav-hidden .with-left-nav {
+    margin-left: 0 !important;
+  }
+}
+.nav-toggle-btn {
+  display: none;
+  position: fixed;
+  top: 16px;
+  z-index: 250;
+  width: 18px;
+  height: 44px;
+  border-radius: 0 8px 8px 0;
+  align-items: center;
+  justify-content: center;
+  background: #f97316;
+  border: 1px solid #f97316;
+  border-left: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.12);
+  transition: left 0.2s ease;
 }
 
 /* ── SEARCH ROW: single line on tight screens ── */
@@ -1352,6 +1400,51 @@ function QueueViewToggle({ mode, setMode }) {
     h('span', { style:{display:'grid'} },
       options.map(o => h('span', { key:o.id, style:{gridArea:'1 / 1',fontSize:11,visibility:o.id===current.id?'visible':'hidden',justifySelf:'start'} }, o.label))
     )
+  );
+}
+
+/* ── POSSESSING / DECLINE TOGGLE (Purchased sub-tab) ── */
+function PossessingDeclineToggle({ mode, setMode, declineCount = 0 }) {
+  const options = [
+    { id:'possessing', label:'Processing' },
+    { id:'decline',    label:'Decline' },
+  ];
+  return h('div', {
+    style:{
+      display:'flex', alignItems:'center', gap:2, padding:2, borderRadius:6,
+      background:'var(--bg)', border:'1px solid var(--border)', flexShrink:0
+    }
+  },
+    options.map(o => h('button', {
+      key: o.id,
+      onClick: () => setMode(o.id),
+      title: o.label,
+      style:{
+        padding:'3px 8px',
+        borderRadius:5,
+        border:'none',
+        background: mode===o.id ? 'var(--surface)' : 'transparent',
+        color: mode===o.id ? 'var(--text)' : 'var(--muted)',
+        cursor:'pointer',
+        fontSize:10,
+        fontWeight: mode===o.id ? 600 : 500,
+        fontFamily:'var(--font)',
+        transition:'all 0.15s',
+        whiteSpace:'nowrap',
+        boxShadow: mode===o.id ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+        display:'flex', alignItems:'center', gap:5,
+      }
+    },
+      o.label,
+      o.id==='decline' && declineCount > 0 && h('span', {
+        style:{
+          fontSize:9, fontWeight:700, lineHeight:1,
+          color: mode===o.id ? '#fff' : 'var(--muted)',
+          background: mode===o.id ? 'var(--amber)' : 'var(--border)',
+          borderRadius:20, padding:'2px 6px', minWidth:14, textAlign:'center',
+        }
+      }, declineCount)
+    ))
   );
 }
 
@@ -4623,6 +4716,10 @@ function SupplierCropModal({ src, darkMode, onConfirm, onCancel, savedCrop, titl
 function App() {
   const [view, setViewRaw]          = useState(() => { const v = localStorage.getItem('lastView'); return (v === 'lowstock' || v === 'settings' || v === 'upload' || v === 'dashboard' || v === 'report' || v === 'history' || v === 'pos' || v === 'suppliers' || v === 'lowstock') ? v : 'dashboard'; });
   const setView = v => { setViewRaw(v); localStorage.setItem('lastView', v); };
+  const [navHidden, setNavHidden] = useState(false);
+  useEffect(() => {
+    document.documentElement.classList.toggle('nav-hidden', navHidden);
+  }, [navHidden]);
   const [stockTab, setStockTabRaw]  = useState(() => localStorage.getItem('stockTab') || 'ordering');
   const stockScrollPositions = useRef({});
   const getStockScrollKey = (st, ost) => st === 'lowstock' ? 'lowstock' : st === 'ordering' ? ('ordering-'+ost) : null;
@@ -4812,6 +4909,9 @@ function App() {
   const [lowStockOp, setLowStockOp]  = useState(() => localStorage.getItem('lowStockOp') || 'lte'); // 'lt' | 'lte'
   const [lowViewMode, setLowViewModeRaw] = useState(() => localStorage.getItem('lowViewMode') || 'product'); // 'product' | 'link' | 'supplier'
   const setLowViewMode = m => { setLowViewModeRaw(m); localStorage.setItem('lowViewMode', m); };
+  const [purchasedStatusMode, setPurchasedStatusModeRaw] = useState(() => localStorage.getItem('purchasedStatusMode') || 'possessing'); // 'possessing' | 'decline'
+  const setPurchasedStatusMode = m => { setPurchasedStatusModeRaw(m); localStorage.setItem('purchasedStatusMode', m); };
+  const [orderHistoryExpanded, setOrderHistoryExpanded] = useState(true);
   const [lowQrGroupExpanded,  setLowQrGroupExpanded]  = useState({});
   const [lowSupGroupExpanded, setLowSupGroupExpanded] = useState({});
   const [pendingQrGroupExpanded,  setPendingQrGroupExpanded]  = useState({});
@@ -5898,6 +5998,32 @@ function App() {
       return next;
     });
   };
+  const bulkUpdateStock = async deltas => {
+    // deltas: [{ id, delta }]
+    const now = new Date().toISOString();
+    const editEntries = [];
+    const updated = products.map(p => {
+      const d = deltas.find(x => x.id === p.id);
+      if (!d) return p;
+      const newStock = Math.max(0, p.stock_count + d.delta);
+      if (newStock === p.stock_count) return p;
+      const change = { field:'Stock', from: p.stock_count, to: newStock };
+      editEntries.push({
+        type: 'product_edit', timestamp: now, productId: p.id,
+        productName: p.product_name || 'Unnamed', productImage: p.image_url || '',
+        changes: [change]
+      });
+      return { ...p, stock_count: newStock, history: [...(p.history||[]), { timestamp: now, changes: [change] }] };
+    });
+    setProducts(updated); await persistProducts(updated);
+    if (editEntries.length) {
+      setIEHistory(prev => {
+        const next = [...editEntries, ...prev].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+        try { window.storage?.set('inv-ie-history', JSON.stringify(next)); } catch(e) {}
+        return next;
+      });
+    }
+  };
   const deleteProduct = async id => {
     const original = products.find(p => p.id === id);
     const updated = products.filter(p => p.id!==id);
@@ -6142,7 +6268,16 @@ function App() {
     }
   };
   const onQrCropMouseUp = () => { setQrCropDragging(false); setQrCropResizing(null); setQrCropStartPt(null); };
-  const leftNav = h('nav', { className:'left-nav' },
+  const leftNav = h(Fragment, null,
+    h('button', {
+      className: 'nav-toggle-btn',
+      title: navHidden ? 'Show navigation' : 'Hide navigation',
+      onClick: () => setNavHidden(v => !v),
+      style: { left: navHidden ? 0 : 40 }
+    },
+      h('span', null, navHidden ? '>' : '<')
+    ),
+    h('nav', { className:'left-nav' },
     h('div', { className:'nav-logo', title:'Go to Settings', onClick:()=>{ setView('settings'); setBrandingFlash(false); setTimeout(()=>{ setBrandingFlash(true); window.scrollTo({ top:0, behavior:'smooth' }); setTimeout(()=>setBrandingFlash(false), 1900); }, 30); }, style:{cursor:'pointer'} },
       companyInfo.logoDataUrl
         ? h('img', { src:companyInfo.logoDataUrl, alt:'logo' })
@@ -6150,49 +6285,51 @@ function App() {
       companyInfo.name && h('div', { className:'nav-store-name' }, companyInfo.name)
     ),
     h('div', { className:'nav-sep' }),
-    h('button', { className:'nav-item' + (view==='report'?' active':''), title:'Report', onClick:()=>setView('report') },
-      h('span', { className:'nav-icon' }, '📊'),
-      h('span', { className:'nav-label' }, 'Report')
-    ),
-    h('button', { className:'nav-item' + (view==='dashboard'?' active':''), title:'Dashboard', onClick:()=>setView('dashboard') },
-      h('span', { className:'nav-icon' }, '📦'),
-      h('span', { className:'nav-label' }, 'Product')
-    ),
-    h('button', { className:'nav-item' + (view==='upload'||view==='review'?' active':''), title:'Add Product', onClick: addProduct },
-      h('span', { className:'nav-icon' }, '➕'),
-      h('span', { className:'nav-label' }, 'Add'),
-      queue.length > 0 && h('span', { className:'nav-badge' }, queue.length)
-    ),
-    h('button', { className:'nav-item' + (view==='lowstock'?' active':''), title:'Reorder', onClick:()=>{ if(view==='lowstock'){ setStockTab('ordering'); setOrderingSubTab('pending'); } else { setView('lowstock'); } },
-      style: products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length>0 ? {position:'relative'} : {} },
-      h('span', { className:'nav-icon' },
-        h('svg', { width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
-          h('path', { d:'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8' }),
-          h('path', { d:'M21 3v5h-5' }),
-          h('path', { d:'M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16' }),
-          h('path', { d:'M8 16H3v5' })
-        )
+    h('div', { className:'nav-scroll' },
+      h('button', { className:'nav-item' + (view==='report'?' active':''), title:'Report', onClick:()=>setView('report') },
+        h('span', { className:'nav-icon' }, '📊'),
+        h('span', { className:'nav-label' }, 'Report')
       ),
-      h('span', { className:'nav-label' }, 'Reorder'),
-      products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length > 0 && h('span', { className:'nav-badge', style:{background:'#ef4444'} }, products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length)
+      h('button', { className:'nav-item' + (view==='dashboard'?' active':''), title:'Dashboard', onClick:()=>setView('dashboard') },
+        h('span', { className:'nav-icon' }, '📦'),
+        h('span', { className:'nav-label' }, 'Product')
+      ),
+      h('button', { className:'nav-item' + (view==='upload'||view==='review'?' active':''), title:'Add Product', onClick: addProduct },
+        h('span', { className:'nav-icon' }, '➕'),
+        h('span', { className:'nav-label' }, 'Add'),
+        queue.length > 0 && h('span', { className:'nav-badge' }, queue.length)
+      ),
+      h('button', { className:'nav-item' + (view==='lowstock'?' active':''), title:'Reorder', onClick:()=>{ if(view==='lowstock'){ setStockTab('ordering'); setOrderingSubTab('pending'); } else { setView('lowstock'); } },
+        style: products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length>0 ? {position:'relative'} : {} },
+        h('span', { className:'nav-icon' },
+          h('svg', { width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
+            h('path', { d:'M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8' }),
+            h('path', { d:'M21 3v5h-5' }),
+            h('path', { d:'M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16' }),
+            h('path', { d:'M8 16H3v5' })
+          )
+        ),
+        h('span', { className:'nav-label' }, 'Reorder'),
+        products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length > 0 && h('span', { className:'nav-badge', style:{background:'#ef4444'} }, products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length)
+      ),
+      h('button', { className:'nav-item' + (view==='pos'?' active':''), title:'Point of Sale', onClick:()=>setView('pos') },
+        h('span', { className:'nav-icon' }, '🛒'),
+        h('span', { className:'nav-label' }, 'POS')
+      ),
+      h('button', { className:'nav-item' + (view==='history'?' active':''), title:'History', onClick:()=>setView('history') },
+        h('span', { className:'nav-icon' }, '🕓'),
+        h('span', { className:'nav-label' }, 'History')
+      ),
+      h('button', { className:'nav-item' + (view==='settings'?' active':''), title:'Settings', onClick:()=>{ setView('settings'); setBrandingFlash(false); setApiKeyFlash(false); } },
+        h('span', { className:'nav-icon' }, '⚙️'),
+        h('span', { className:'nav-label nav-label-settings' }, 'Settings')
+      )
     ),
-    h('button', { className:'nav-item' + (view==='pos'?' active':''), title:'Point of Sale', onClick:()=>setView('pos') },
-      h('span', { className:'nav-icon' }, '🛒'),
-      h('span', { className:'nav-label' }, 'POS')
-    ),
-    h('button', { className:'nav-item' + (view==='history'?' active':''), title:'History', onClick:()=>setView('history') },
-      h('span', { className:'nav-icon' }, '🕓'),
-      h('span', { className:'nav-label' }, 'History')
-    ),
-    h('button', { className:'nav-item' + (view==='settings'?' active':''), title:'Settings', onClick:()=>{ setView('settings'); setBrandingFlash(false); setApiKeyFlash(false); } },
-      h('span', { className:'nav-icon' }, '⚙️'),
-      h('span', { className:'nav-label nav-label-settings' }, 'Settings')
-    ),
-    h('div', { className:'nav-spacer' }),
     h('div', { className:'nav-sep' }),
     h('button', { className:'nav-item', title: darkMode ? 'Light mode' : 'Dark mode', onClick: toggleDark },
       h('span', { className:'nav-icon' }, darkMode ? '☀️' : '🌙'),
       h('span', { className:'nav-label' }, darkMode ? 'Light' : 'Dark')
+    )
     )
   );
 
@@ -6214,7 +6351,7 @@ function App() {
     const stockStats = [
       { key:'ordering',      icon:'\ud83d\uded2', label:'Ordering',       value: manualOrderCount,       red: manualOrderCount>0 },
       { key:'deliverynote',  icon:'\ud83d\udcdd', label:'Delivery Note',  value: 0,                      red: false },
-      { key:'packaging',     icon:'\ud83d\udce6', label:'Packaging',      value: purchaseOrders.filter(o => products.some(p => p.id === o.id)).length,  red: false },
+      { key:'packaging',     icon:'\ud83d\udce6', label:'Packaging',      value: purchaseOrders.filter(o => !o.declined && products.some(p => p.id === o.id)).length,  red: false },
       { key:'instore',       icon:'\ud83c\udfe5', label:'In Store',       value: products.filter(p => !p.pending_new && (lowStockOp==='lte' ? p.stock_count>lowStockN : p.stock_count>=lowStockN)).length, red: false },
     ];
 
@@ -6741,7 +6878,7 @@ function App() {
                   h('span', { style:{display:'contents'} },
                     h('span', {}, (stockTab === 'ordering' && orderingSubTab === 'purchase') ? 'Purchased' : 'Pu..'),
                   ),
-                  (() => { const c = purchaseOrders.filter(o => products.some(p => p.id === o.id)).length; return c > 0 && h('span', {
+                  (() => { const c = purchaseOrders.filter(o => !o.declined && products.some(p => p.id === o.id)).length; return c > 0 && h('span', {
                     style:{
                       background: (stockTab === 'ordering' && orderingSubTab === 'purchase') ? 'var(--amber)' : 'var(--border)',
                       color: (stockTab === 'ordering' && orderingSubTab === 'purchase') ? '#fff' : 'var(--muted)',
@@ -6972,8 +7109,25 @@ function App() {
               const nx = orderingIds.filter(id => !idSet.has(id));
               setOrderingIds(nx); localStorage.setItem('orderingIds', JSON.stringify(nx));
             };
+            const bulkPurchaseOrderGroup = items => {
+              const now = new Date().toISOString();
+              const entries = items.map(p => {
+                const mergedP = mergeReorderInfo(p);
+                return { id:p.id, product_name:mergedP.product_name||'Unnamed', category:mergedP.category||'Uncategorized', product_type:mergedP.product_type||'', image_url:mergedP.image_url||'', stock_count:p.stock_count, qty:orderQtys[p.id]||1, addedAt:now };
+              });
+              const ids = new Set(items.map(p=>p.id));
+              const next = [...entries, ...purchaseOrders.filter(o => !ids.has(o.id))];
+              setPurchaseOrders(next);
+              localStorage.setItem('purchaseOrders', JSON.stringify(next));
+              setPrevOrderingIds([...orderingIds]);
+              const nextOrdering = orderingIds.filter(id => !ids.has(id));
+              setOrderingIds(nextOrdering);
+              localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
+            };
             /* Shared hold-to-reveal-remove behavior for a group header row (QR view / Supplier view). */
-            const useGroupSwipe = (groupId, groupIds) => {
+            const useGroupSwipe = (groupId, groupIds, opts) => {
+              const onConfirm = (opts && opts.onConfirm) || (() => ocDoRemoveGroup(groupIds));
+              const label = (opts && opts.label) || 'Remove';
               const groupRevealed = ocSwipe.id === groupId && ocSwipe.offset !== 0;
               const isHoldingGroup = ocHold.id === groupId;
               const onGroupDown = e => {
@@ -6994,7 +7148,7 @@ function App() {
               const groupHoldBar = isHoldingGroup && h('div', { style:{ position:'absolute', top:0, right:0, width:3, height:(ocHold.pct)+'%', background:'var(--amber)', zIndex:2, pointerEvents:'none' } });
               const groupRemoveBtn = h('div', {
                 'data-oc-action': true,
-                onClick: e => { e.stopPropagation(); ocDoRemoveGroup(groupIds); },
+                onClick: e => { e.stopPropagation(); setOcSwipe({ id:null, offset:0, ready:false }); onConfirm(); },
                 onMouseDown: e => e.stopPropagation(),
                 onTouchStart: e => e.stopPropagation(),
                 style:{
@@ -7004,7 +7158,7 @@ function App() {
                   overflow:'hidden', whiteSpace:'nowrap', cursor:'pointer', flexShrink:0,
                   transition:'width 0.22s ease, min-width 0.22s ease',
                 }
-              }, groupRevealed && 'Remove');
+              }, groupRevealed && label);
               return { groupRevealed, onGroupDown, onGroupMove, onGroupUp, groupHoldBar, groupRemoveBtn };
             };
             const ocCancel = () => {
@@ -7150,7 +7304,7 @@ function App() {
                         setOrderingIds(nextOrdering);
                         localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
                       }
-                    }, 'Purchase Order'),
+                    }, 'Placing order'),
                     h('div', {
                       onClick: () => ocDoRemove(p.id),
                       onMouseDown: e => e.stopPropagation(),
@@ -7400,12 +7554,22 @@ function App() {
                                     h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
                                   )
                                 ),
+                                h('button', {
+                                  className:'btn-ghost',
+                                  disabled: groupRevealed,
+                                  style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',flexShrink:0,opacity:groupRevealed?0.4:1,cursor:groupRevealed?'not-allowed':'pointer',pointerEvents:groupRevealed?'none':'auto',color:'#f97316'},
+                                  onClick: e => {
+                                    e.stopPropagation();
+                                    if (groupRevealed) return;
+                                    bulkPurchaseOrderGroup(items);
+                                  }
+                                }, 'Placing order'),
                                 groupRemoveBtn
                               ),
                               /* expanded rows */
                               expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
                                   items.map((p, idx) => renderCard(p, p.stock_count === 0, true, idx===0, idx===items.length-1))
                                 )
                               )
@@ -7472,12 +7636,22 @@ function App() {
                                     h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
                                   )
                                 ),
+                                h('button', {
+                                  className:'btn-ghost',
+                                  disabled: groupRevealed,
+                                  style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',flexShrink:0,opacity:groupRevealed?0.4:1,cursor:groupRevealed?'not-allowed':'pointer',pointerEvents:groupRevealed?'none':'auto',color:'#f97316'},
+                                  onClick: e => {
+                                    e.stopPropagation();
+                                    if (groupRevealed) return;
+                                    bulkPurchaseOrderGroup(items);
+                                  }
+                                }, 'Placing order'),
                                 groupRemoveBtn
                               ),
                               /* expanded rows */
                               expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                                h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
                                   items.map((p, idx) => renderCard(p, p.stock_count === 0, true, idx===0, idx===items.length-1))
                                 )
                               )
@@ -7496,6 +7670,19 @@ function App() {
               setPurchaseOrders(validPurchaseOrders);
               localStorage.setItem('purchaseOrders', JSON.stringify(validPurchaseOrders));
             }
+            const displayedPurchaseOrdersAll = validPurchaseOrders.filter(o => purchasedStatusMode==='decline' ? !!o.declined : !o.declined);
+            const displayedPurchaseOrders = displayedPurchaseOrdersAll.filter(o => !o.refunded);
+            const historyPurchaseOrders = displayedPurchaseOrdersAll.filter(o => !!o.refunded);
+            const undoGroupPurchaseOrders = items => {
+              const ids = new Set(items.map(o=>o.id));
+              const nextPO = purchaseOrders.filter(x => !ids.has(x.id));
+              setPurchaseOrders(nextPO);
+              localStorage.setItem('purchaseOrders', JSON.stringify(nextPO));
+              setPrevOrderingIds([...orderingIds]);
+              const nextOrdering = [...new Set([...items.map(o=>o.id), ...orderingIds])];
+              setOrderingIds(nextOrdering);
+              localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
+            };
             const renderPOCard = (o, inGroup, isFirst, isLast) => {
                       const rowRadius = inGroup ? (isFirst && isLast ? '10px' : isFirst ? '10px 10px 0 0' : isLast ? '0 0 10px 10px' : '0') : '0';
                       const isHl = highlightedOrderId === o.id;
@@ -7569,12 +7756,27 @@ function App() {
                       };
                       const onUp = () => ocClearHold();
                       const doUndo = () => {
-                        const nextPO = purchaseOrders.filter(x => x.id !== o.id);
-                        setPurchaseOrders(nextPO);
-                        localStorage.setItem('purchaseOrders', JSON.stringify(nextPO));
-                        const nextOrdering = orderingIds.includes(o.id) ? orderingIds : [o.id, ...orderingIds];
-                        setOrderingIds(nextOrdering);
-                        localStorage.setItem('orderingIds', JSON.stringify(nextOrdering));
+                        if (o.refunded) {
+                          const next = purchaseOrders.map(x => x.id === o.id ? { ...x, refunded:false, refundedAt:undefined } : x);
+                          setPurchaseOrders(next);
+                          localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                        } else {
+                          const next = purchaseOrders.map(x => x.id === o.id ? { ...x, declined:false, refunded:false, declinedAt:undefined, refundedAt:undefined } : x);
+                          setPurchaseOrders(next);
+                          localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                          setPurchasedStatusMode('possessing');
+                        }
+                      };
+                      const formatPODate = iso => {
+                        if (!iso) return '';
+                        const d = new Date(iso);
+                        let h24 = d.getHours();
+                        const ampm = h24 >= 12 ? 'PM' : 'AM';
+                        let h12 = h24 % 12; if (h12 === 0) h12 = 12;
+                        const hh = String(h12).padStart(2,'0');
+                        const mm = String(d.getMinutes()).padStart(2,'0');
+                        const datePart = d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+                        return datePart + ' ' + hh + ':' + mm + ampm;
                       };
                       return h('div', { key:o.id, 'data-oc-row':true, style:{ position:'relative' } },
                         h('div', {
@@ -7613,23 +7815,63 @@ function App() {
                                 transition: swipeOff===0 ? 'transform 0.2s ease' : 'none',
                                 position:'relative',
                               } },
-                              h('span', { style:{fontSize:9,fontWeight:700,color:'#166534',background:'#dcfce7',border:'1px solid #86efac',borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, 'Ordered'),
-                              h('button', {
-                                className:'btn-ghost',
-                                disabled: swipeOff !== 0,
-                                style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',opacity:swipeOff!==0?0.4:1,cursor:swipeOff!==0?'not-allowed':'pointer',pointerEvents:swipeOff!==0?'none':'auto'},
-                                onMouseDown: e => e.stopPropagation(),
+                              h('div', { style:{display:'flex',alignItems:'center',gap:6} },
+                                o.declined ? (o.refunded ? o.refundedAt : o.declinedAt) && h('span', { style:{fontSize:9,color:'var(--muted)',whiteSpace:'nowrap'} }, formatPODate(o.refunded ? o.refundedAt : o.declinedAt))
+                                           : o.addedAt && h('span', { style:{fontSize:9,color:'var(--muted)',whiteSpace:'nowrap'} }, formatPODate(o.addedAt)),
+                                h('span', { style:{fontSize:9,fontWeight:700,color: (o.declined && !o.refunded) ? '#991b1b' : '#166534',background: (o.declined && !o.refunded) ? '#fee2e2' : '#dcfce7',border:'1px solid '+((o.declined && !o.refunded) ? '#fca5a5' : '#86efac'),borderRadius:20,padding:'2px 7px',whiteSpace:'nowrap'} }, o.declined ? (o.refunded ? 'Refund' : 'Waiting for Refund') : 'Ordered')
+                              ),
+                              h('div', { style:{display:'flex',alignItems:'center',gap:6} },
+                                o.declined
+                                  ? null
+                                  : h('button', {
+                                      className:'btn-ghost',
+                                      disabled: swipeOff !== 0,
+                                      style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',color:'#dc2626',opacity:swipeOff!==0?0.4:1,cursor:swipeOff!==0?'not-allowed':'pointer',pointerEvents:swipeOff!==0?'none':'auto'},
+                                      onMouseDown: e => e.stopPropagation(),
+                                      onClick: e => {
+                                        e.stopPropagation();
+                                        if (swipeOff !== 0) return;
+                                        const next = purchaseOrders.map(x => x.id === o.id ? { ...x, declined:true, declinedAt: new Date().toISOString() } : x);
+                                        setPurchaseOrders(next);
+                                        localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                        setPurchasedStatusMode('decline');
+                                      }
+                                    }, 'Decline'),
+                                o.declined
+                                  ? h('button', {
+                                      className:'btn-ghost',
+                                      disabled: swipeOff !== 0 || o.refunded,
+                                      style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',opacity:(swipeOff!==0||o.refunded)?0.4:1,cursor:(swipeOff!==0||o.refunded)?'not-allowed':'pointer',pointerEvents:(swipeOff!==0||o.refunded)?'none':'auto'},
+                                      onMouseDown: e => e.stopPropagation(),
+                                      onClick: e => {
+                                        e.stopPropagation();
+                                        if (swipeOff !== 0 || o.refunded) return;
+                                        const next = purchaseOrders.map(x => x.id === o.id ? { ...x, refunded:true, refundedAt: new Date().toISOString() } : x);
+                                        setPurchaseOrders(next);
+                                        localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                      }
+                                    }, 'Refunded')
+                                  : h('button', {
+                                      className:'btn-ghost',
+                                      disabled: swipeOff !== 0,
+                                      style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',opacity:swipeOff!==0?0.4:1,cursor:swipeOff!==0?'not-allowed':'pointer',pointerEvents:swipeOff!==0?'none':'auto'},
+                                      onMouseDown: e => e.stopPropagation(),
+                                      onClick: e => {
+                                        e.stopPropagation();
+                                        if (swipeOff !== 0) return;
+                                        updateStock(o.id, o.qty);
+                                        const next = purchaseOrders.filter(x => x.id !== o.id);
+                                        setPurchaseOrders(next);
+                                        localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                      }
+                                    }, 'Delivering '+o.qty)
+                              ),
+                              h('div', {
                                 onClick: e => {
                                   e.stopPropagation();
-                                  if (swipeOff !== 0) return;
-                                  updateStock(o.id, o.qty);
-                                  const next = purchaseOrders.filter(x => x.id !== o.id);
-                                  setPurchaseOrders(next);
-                                  localStorage.setItem('purchaseOrders', JSON.stringify(next));
-                                }
-                              }, '\u2713 Restock '+o.qty),
-                              h('div', {
-                                onClick: doUndo,
+                                  setOcSwipe({ id:null, offset:0, ready:false });
+                                  setTimeout(doUndo, 200);
+                                },
                                 onMouseDown: e => e.stopPropagation(),
                                 'data-oc-action': true,
                                 style:{
@@ -7787,17 +8029,48 @@ function App() {
                         )
                       );
             };
-            return validPurchaseOrders.length === 0
-              ? h('div', { style:{textAlign:'center',padding:'72px 20px'} },
-                  h('div', { style:{fontSize:52,marginBottom:12} }, '📋'),
-                  h('p', { style:{fontSize:16,fontWeight:600,color:'var(--text)',marginBottom:6} }, 'No purchase orders yet'),
-                  h('p', { style:{fontSize:13,color:'var(--muted)',marginBottom:products.length===0?16:0} }, 'Click "Purchase Order" on any item in the Pending Order tab to add it here.'),
-                  products.length === 0 && h('div', { style:{display:'flex',gap:8,justifyContent:'center'} },
-                    h('button', { className:'btn-ghost', style:{fontSize:11,padding:'5px 11px'}, onClick:()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='.json'; inp.onchange=doImport; inp.click(); } }, '⬆ Import existing data')
+            const renderOrderHistorySection = () => historyPurchaseOrders.length > 0 && h('div', null,
+                  h('p', {
+                      onClick: () => setOrderHistoryExpanded(v => !v),
+                      onMouseEnter: e => { e.currentTarget.style.color='var(--amber)'; },
+                      onMouseLeave: e => { e.currentTarget.style.color='var(--muted)'; },
+                      style:{textAlign:'center',fontSize:12,color:'var(--muted)',margin:'18px 0 4px',display:'flex',alignItems:'center',justifyContent:'center',gap:6,cursor:'pointer',userSelect:'none',transition:'color 0.15s'}
+                    },
+                    h('span', null, 'Order history'),
+                    h('span', { style:{fontSize:10,fontWeight:700,color:'var(--muted)',background:'var(--border)',borderRadius:20,padding:'1px 7px',minWidth:16,textAlign:'center'} }, historyPurchaseOrders.length),
+                    h('span', { style:{fontSize:14} }, orderHistoryExpanded ? '˄' : '˅')
+                  ),
+                  orderHistoryExpanded && h('div', { style:{border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',background:'var(--surface)'} },
+                    historyPurchaseOrders.map(o => renderPOCard(o))
                   )
+                );
+            return displayedPurchaseOrders.length === 0
+              ? h('div', null,
+                  h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, purchasedStatusMode==='decline' ? '🚫 Declined Orders' : '📋 Purchase Orders'),
+                  h('div', {
+                    style:{
+                      display:'flex', alignItems:'center', justifyContent:'flex-start', gap:8,
+                      marginTop:3,
+                      marginBottom:14,
+                      paddingTop:0
+                    }
+                  },
+                    h('span', { style:{fontSize:11,color:'var(--muted)'} }, displayedPurchaseOrders.length+' product'+(displayedPurchaseOrders.length!==1?'s':'')+' — '+displayedPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)+' unit'+(displayedPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)!==1?'s':'')),
+                    h(QueueViewToggle, { mode:lowViewMode, setMode:setLowViewMode }),
+                    h('div', { style:{marginLeft:'auto'} }, h(PossessingDeclineToggle, { mode:purchasedStatusMode, setMode:setPurchasedStatusMode, declineCount: validPurchaseOrders.filter(o=>o.declined && !o.refunded).length }))
+                  ),
+                  h('div', { style:{textAlign:'center',padding:'56px 20px'} },
+                    h('div', { style:{fontSize:52,marginBottom:12} }, purchasedStatusMode==='decline' ? '🚫' : '📋'),
+                    h('p', { style:{fontSize:16,fontWeight:600,color:'var(--text)',marginBottom:6} }, purchasedStatusMode==='decline' ? 'No declined orders' : 'No purchase orders yet'),
+                    h('p', { style:{fontSize:13,color:'var(--muted)',marginBottom:products.length===0?16:0} }, purchasedStatusMode==='decline' ? 'Orders you decline will show up here.' : 'Click "Purchase Order" on any item in the Pending Order tab to add it here.'),
+                    products.length === 0 && h('div', { style:{display:'flex',gap:8,justifyContent:'center'} },
+                      h('button', { className:'btn-ghost', style:{fontSize:11,padding:'5px 11px'}, onClick:()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='.json'; inp.onchange=doImport; inp.click(); } }, '⬆ Import existing data')
+                    )
+                  ),
+                  renderOrderHistorySection()
                 )
               : h('div', null,
-                  h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, '📋 Purchase Orders'),
+                  h('p', { style:{fontSize:13,fontWeight:600,color:'var(--text)',margin:0} }, purchasedStatusMode==='decline' ? '🚫 Declined Orders' : '📋 Purchase Orders'),
                   h('div', { ref: stockUnitsSentinelRef, style:{height:0} }),
                   h('div', {
                     ref: stockUnitsRowRef,
@@ -7809,17 +8082,18 @@ function App() {
                       background:'var(--bg)', paddingBottom:4, paddingTop:0
                     }
                   },
-                    h('span', { style:{fontSize:11,color:'var(--muted)'} }, validPurchaseOrders.length+' product'+(validPurchaseOrders.length!==1?'s':'')+' — '+validPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)+' unit'+(validPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)!==1?'s':'')),
-                    h(QueueViewToggle, { mode:lowViewMode, setMode:setLowViewMode })
+                    h('span', { style:{fontSize:11,color:'var(--muted)'} }, displayedPurchaseOrders.length+' product'+(displayedPurchaseOrders.length!==1?'s':'')+' — '+displayedPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)+' unit'+(displayedPurchaseOrders.reduce((sum,o)=>sum+o.qty,0)!==1?'s':'')),
+                    h(QueueViewToggle, { mode:lowViewMode, setMode:setLowViewMode }),
+                    h('div', { style:{marginLeft:'auto'} }, h(PossessingDeclineToggle, { mode:purchasedStatusMode, setMode:setPurchasedStatusMode, declineCount: validPurchaseOrders.filter(o=>o.declined && !o.refunded).length }))
                   ),
                   lowViewMode === 'product' && h('div', { style:{border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',background:'var(--surface)'} },
-                    validPurchaseOrders.map(o => renderPOCard(o))
+                    displayedPurchaseOrders.map(o => renderPOCard(o))
                   ),
                   lowViewMode === 'link' && h('div', { style:{display:'flex',flexDirection:'column',gap:8} },
                     (()=>{
                       const groups = [];
                       const seen = {};
-                      [...validPurchaseOrders].forEach(o => {
+                      [...displayedPurchaseOrders].forEach(o => {
                         const key = (products.find(pr=>pr.id===o.id)||o).qr_link_url || '__none__';
                         if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
                         groups.find(g=>g.key===key).items.push(o);
@@ -7832,15 +8106,21 @@ function App() {
                         const repLive = products.find(pr=>pr.id===repO.id)||repO;
                         const _s = suppliers.find(s=>s.name===repLive.supplier);
                         const _thumb = _s && (_s.logoUrl || _s.imageUrl);
+                        const { groupRevealed, onGroupDown, onGroupMove, onGroupUp, groupHoldBar, groupRemoveBtn } = purchasedStatusMode!=='decline'
+                          ? useGroupSwipe('poqrgrp:'+key, items.map(it=>it.id), { onConfirm: () => undoGroupPurchaseOrders(items), label:'Undo' })
+                          : { groupRevealed:false, onGroupDown:undefined, onGroupMove:undefined, onGroupUp:undefined, groupHoldBar:null, groupRemoveBtn:null };
                         return h('div', { key },
                           h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
                             h('div', {
                               ref: measureGroupHeaderRef,
                               style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
-                              onClick:()=>setPurchaseQrGroupExpanded(prev=>({...prev,[key]:!expanded})),
-                              onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
-                              onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
+                              onClick:()=>{ if(groupRevealed) return; setPurchaseQrGroupExpanded(prev=>({...prev,[key]:!expanded})); },
+                              onMouseDown:onGroupDown, onMouseMove:onGroupMove, onMouseUp:onGroupUp,
+                              onTouchStart:onGroupDown, onTouchMove:onGroupMove, onTouchEnd:onGroupUp, onTouchCancel:onGroupUp,
+                              onMouseEnter:e=>{ if(!groupRevealed) e.currentTarget.style.background='var(--amber-light)'; },
+                              onMouseLeave:e=>{ onGroupUp && onGroupUp(); if(!groupRevealed) e.currentTarget.style.background='var(--surface)'; },
                             },
+                              groupHoldBar,
                               h('div', {
                                 style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:key==='__none__'?'1px dashed var(--border)':'1px solid var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:key!=='__none__'?'zoom-in':'default'},
                                 onClick:e=>{ e.stopPropagation(); if(key!=='__none__') setQrLightbox({url:key,id:repO.id}); }
@@ -7867,11 +8147,40 @@ function App() {
                                   h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
                                   h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
                                 )
-                              )
+                              ),
+                              purchasedStatusMode==='decline' && h('button', {
+                                className:'btn-ghost',
+                                disabled: items.every(o=>o.refunded),
+                                style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',flexShrink:0,opacity: items.every(o=>o.refunded)?0.4:1,cursor: items.every(o=>o.refunded)?'not-allowed':'pointer',color:'#f97316'},
+                                onClick: e => {
+                                  e.stopPropagation();
+                                  if (items.every(o=>o.refunded)) return;
+                                  const ids = new Set(items.map(o=>o.id));
+                                  const now = new Date().toISOString();
+                                  const next = purchaseOrders.map(x => ids.has(x.id) && !x.refunded ? { ...x, refunded:true, refundedAt: now } : x);
+                                  setPurchaseOrders(next);
+                                  localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                }
+                              }, 'Refund'),
+                              purchasedStatusMode!=='decline' && h('button', {
+                                className:'btn-ghost',
+                                disabled: groupRevealed,
+                                style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',flexShrink:0,opacity:groupRevealed?0.4:1,cursor:groupRevealed?'not-allowed':'pointer',pointerEvents:groupRevealed?'none':'auto',color:'#f97316'},
+                                onClick: e => {
+                                  e.stopPropagation();
+                                  if (groupRevealed) return;
+                                  bulkUpdateStock(items.map(o => ({ id:o.id, delta:o.qty })));
+                                  const ids = new Set(items.map(o=>o.id));
+                                  const next = purchaseOrders.filter(x => !ids.has(x.id));
+                                  setPurchaseOrders(next);
+                                  localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                }
+                              }, 'Delivering '+totalUnits),
+                              groupRemoveBtn,
                             ),
                             expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
                                 items.map((o, idx) => renderPOCard(o, true, idx===0, idx===items.length-1))
                               )
                             )
@@ -7884,7 +8193,7 @@ function App() {
                     (()=>{
                       const groups = [];
                       const seen = {};
-                      [...validPurchaseOrders].forEach(o => {
+                      [...displayedPurchaseOrders].forEach(o => {
                         const key = (products.find(pr=>pr.id===o.id)||o).supplier || '__none__';
                         if (!seen[key]) { seen[key] = true; groups.push({ key, items:[] }); }
                         groups.find(g=>g.key===key).items.push(o);
@@ -7896,15 +8205,21 @@ function App() {
                         const _s = key !== '__none__' ? suppliers.find(s=>s.name===key) : null;
                         const supplierImgUrl  = _s?.imageUrl || null;
                         const supplierLogoUrl = _s?.logoUrl  || null;
+                        const { groupRevealed, onGroupDown, onGroupMove, onGroupUp, groupHoldBar, groupRemoveBtn } = purchasedStatusMode!=='decline'
+                          ? useGroupSwipe('posupgrp:'+key, items.map(it=>it.id), { onConfirm: () => undoGroupPurchaseOrders(items), label:'Undo' })
+                          : { groupRevealed:false, onGroupDown:undefined, onGroupMove:undefined, onGroupUp:undefined, groupHoldBar:null, groupRemoveBtn:null };
                         return h('div', { key },
                           h('div', { style:{background:'var(--surface)',border:'1px solid var(--bg)',borderRadius:10} },
                             h('div', {
                               ref: measureGroupHeaderRef,
                               style:{display:'flex',alignItems:'center',gap:12,padding:'6px 12px',cursor:'pointer',userSelect:'none',background:'var(--surface)',transition:'background 0.1s, box-shadow 0.15s',position:'sticky',top:Math.max(0, stockStickyHeaderH + stockUnitsRowH - 2),zIndex:expanded?81:80,borderRadius:10,border:'1px solid var(--border)',boxShadow:expanded?(darkMode?'0 8px 24px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)':'0 8px 20px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.08)'):'none'},
-                              onClick:()=>setPurchaseSupGroupExpanded(prev=>({...prev,[key]:!expanded})),
-                              onMouseEnter:e=>{ e.currentTarget.style.background='var(--amber-light)'; },
-                              onMouseLeave:e=>{ e.currentTarget.style.background='var(--surface)'; },
+                              onClick:()=>{ if(groupRevealed) return; setPurchaseSupGroupExpanded(prev=>({...prev,[key]:!expanded})); },
+                              onMouseDown:onGroupDown, onMouseMove:onGroupMove, onMouseUp:onGroupUp,
+                              onTouchStart:onGroupDown, onTouchMove:onGroupMove, onTouchEnd:onGroupUp, onTouchCancel:onGroupUp,
+                              onMouseEnter:e=>{ if(!groupRevealed) e.currentTarget.style.background='var(--amber-light)'; },
+                              onMouseLeave:e=>{ onGroupUp && onGroupUp(); if(!groupRevealed) e.currentTarget.style.background='var(--surface)'; },
                             },
+                              groupHoldBar,
                               h('div', {
                                 style:{width:52,height:52,flexShrink:0,borderRadius:8,overflow:'hidden',border:supplierImgUrl?'1px solid var(--border)':'1px dashed var(--border)',background:darkMode?'#1C1C1F':'#fff',cursor:supplierImgUrl?'zoom-in':'default'},
                                 onClick:e=>{ e.stopPropagation(); if(supplierImgUrl) setSavedSupplierImgPreviewUrl(supplierImgUrl); }
@@ -7930,11 +8245,40 @@ function App() {
                                   h('span',{style:{fontSize:11,color:'var(--muted)'}},'Products: ',h('b',{style:{color:'var(--text)'}},''+items.length)),
                                   h('span',{style:{fontSize:11,color:'var(--muted)'}},'Units: ',h('b',{style:{color:'var(--text)'}},''+totalUnits))
                                 )
-                              )
+                              ),
+                              purchasedStatusMode==='decline' && h('button', {
+                                className:'btn-ghost',
+                                disabled: items.every(o=>o.refunded),
+                                style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',flexShrink:0,opacity: items.every(o=>o.refunded)?0.4:1,cursor: items.every(o=>o.refunded)?'not-allowed':'pointer',color:'#f97316'},
+                                onClick: e => {
+                                  e.stopPropagation();
+                                  if (items.every(o=>o.refunded)) return;
+                                  const ids = new Set(items.map(o=>o.id));
+                                  const now = new Date().toISOString();
+                                  const next = purchaseOrders.map(x => ids.has(x.id) && !x.refunded ? { ...x, refunded:true, refundedAt: now } : x);
+                                  setPurchaseOrders(next);
+                                  localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                }
+                              }, 'Refund'),
+                              purchasedStatusMode!=='decline' && h('button', {
+                                className:'btn-ghost',
+                                disabled: groupRevealed,
+                                style:{fontSize:11,padding:'4px 10px',whiteSpace:'nowrap',flexShrink:0,opacity:groupRevealed?0.4:1,cursor:groupRevealed?'not-allowed':'pointer',pointerEvents:groupRevealed?'none':'auto',color:'#f97316'},
+                                onClick: e => {
+                                  e.stopPropagation();
+                                  if (groupRevealed) return;
+                                  bulkUpdateStock(items.map(o => ({ id:o.id, delta:o.qty })));
+                                  const ids = new Set(items.map(o=>o.id));
+                                  const next = purchaseOrders.filter(x => !ids.has(x.id));
+                                  setPurchaseOrders(next);
+                                  localStorage.setItem('purchaseOrders', JSON.stringify(next));
+                                }
+                              }, 'Delivering '+totalUnits),
+                              groupRemoveBtn,
                             ),
                             expanded && h('div', { style:{padding:'3px 16px 8px',background:'var(--bg)',borderRadius:'0 0 10px 10px',display:'flex',gap:10,alignItems:'stretch'} },
                         h('div', { style:{width:3,borderRadius:2,background:'var(--amber)',flexShrink:0,alignSelf:'stretch'} }),
-                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'visible'} },
+                              h('div', { style:{flex:1,borderTop:'1px solid var(--border)',borderLeft:'1px solid var(--border)',borderRight:'1px solid var(--border)',borderRadius:'10px',display:'flex',flexDirection:'column',overflow:'hidden'} },
                                 items.map((o, idx) => renderPOCard(o, true, idx===0, idx===items.length-1))
                               )
                             )
@@ -7942,7 +8286,8 @@ function App() {
                         );
                       });
                     })()
-                  )
+                  ),
+                  renderOrderHistorySection()
                 );
           })()),
 
