@@ -53,12 +53,6 @@ input, select, textarea { font-family: var(--font); }
   60%  { box-shadow: 0 0 0 10px rgba(186,117,23,0.12), 0 0 0 22px rgba(186,117,23,0.04); border-color: var(--amber); }
   100% { box-shadow: 0 0 0 0 rgba(186,117,23,0), 0 0 0 0 rgba(186,117,23,0); border-color: var(--border); }
 }
-.branding-highlight {
-  animation: brandingPop 1.8s ease-out forwards;
-}
-.apikey-highlight {
-  animation: brandingPop 1.8s ease-out forwards;
-}
 .supplier-row-highlight {
   animation: brandingPop 1.8s ease-out forwards;
 }
@@ -811,25 +805,50 @@ html.dark .nav-item .nav-badge {
   .with-left-nav { margin-left: 52px !important; }
 }
 @media (max-width: 450px) {
-  .left-nav { width: 40px; }
-  .nav-item { width: 32px; height: 36px; }
-  .nav-item .nav-icon { font-size: 16px; }
-  .nav-item .nav-label { display: none; }
-  .nav-store-name { display: none; }
-  .with-left-nav { margin-left: 40px !important; }
-
-  .nav-toggle-btn {
-    display: flex !important;
-  }
   .left-nav {
-    transition: transform 0.2s ease;
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100% !important;
+    height: 58px;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: center;
+    padding: 0 2px;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    gap: 0;
+    transform: none !important;
   }
-  html.nav-hidden .left-nav {
-    transform: translateX(-100%);
+  .left-nav .nav-logo {
+    display: none;
   }
-  html.nav-hidden .with-left-nav {
-    margin-left: 0 !important;
+  .nav-store-name { display: none; }
+  .left-nav .nav-sep { display: none; }
+  .left-nav .nav-scroll {
+    flex: 4;
+    min-width: 0;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: space-evenly;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
+  .left-nav .nav-scroll > button:nth-child(1) { order: 2; } /* Product */
+  .left-nav .nav-scroll > button:nth-child(2) { order: 3; } /* Add */
+  .left-nav .nav-scroll > button:nth-child(3) { order: 1; } /* Reorder */
+  .left-nav .nav-scroll > button:nth-child(4) { order: 4; } /* POS */
+  .nav-item { width: auto; flex: 1; min-width: 0; height: auto; border-radius: 0; }
+  .nav-item .nav-icon { font-size: 17px; }
+  .nav-item .nav-label { display: block; font-size: 8px; }
+  .with-left-nav { margin-left: 0 !important; margin-bottom: 58px; }
+
+  .nav-toggle-btn { display: none !important; }
+  .app-toast { bottom: 74px !important; }
+}
+.pos-invoice-link:hover {
+  color: var(--amber) !important;
 }
 .nav-toggle-btn {
   display: none;
@@ -2977,8 +2996,9 @@ function POSScanResultModal({ product, outOfStock, onClose, onAddToCart, onResca
 }
 
 /* ── POS VIEW ── */
-function POSView({ products, onBack, onCheckout, onPrintInvoice, onAddReceipt, darkMode, toggleDark, ieHistory, excludedWords = [], onExcludedWordsChange, cart, setCart, apiKeys, invoiceTemplate }) {
+function POSView({ products, onBack, onCheckout, onPrintInvoice, onAddReceipt, darkMode, toggleDark, ieHistory, excludedWords = [], onExcludedWordsChange, cart, setCart, apiKeys, invoiceTemplate, saveInvoiceTemplate, companyInfo, saveCompanyInfo }) {
   useEffect(() => { window.__invoiceTemplate__ = invoiceTemplate || null; }, [invoiceTemplate]);
+  const [showInvoiceSettings, setShowInvoiceSettings] = useState(false);
   const [search, setSearch] = useState('');
   const [catFilter, setCatFilter] = useState('All');
   const [receipt, setReceipt] = useState(null);
@@ -3247,14 +3267,33 @@ function POSView({ products, onBack, onCheckout, onPrintInvoice, onAddReceipt, d
   );
 
   // ── MAIN POS SCREEN ──
+  const invoiceSettingsModal = showInvoiceSettings && h('div', {
+    className: 'modal-overlay',
+    onClick: e => { if (e.target === e.currentTarget) setShowInvoiceSettings(false); }
+  },
+    h('div', { className:'modal-box', style:{maxWidth:620,width:'100%',padding:0,overflow:'hidden',maxHeight:'92vh',display:'flex',flexDirection:'column'} },
+      h('div', { style:{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0} },
+        h('h2', { style:{fontSize:15,fontWeight:700,margin:0,color:'var(--text)'} }, '📋 Invoice Template'),
+        h('button', {
+          onClick:()=>setShowInvoiceSettings(false),
+          style:{fontSize:13,padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer'}
+        }, '✕')
+      ),
+      h('div', { style:{padding:'18px 20px',overflowY:'auto'} },
+        h(InvoiceTemplateSection, { companyInfo, saveCompanyInfo, invoiceTemplate, saveInvoiceTemplate, bare:true })
+      )
+    )
+  );
+
   return h('div', { style:{position:'relative',height:'100%'} },
   invoiceModal,
+  invoiceSettingsModal,
   h('div', { style:{height:'100%',background:'var(--bg)',display:'flex',flexDirection:'column',overflow:'hidden'} },
     /* Header */
     h('div', { className:'pos-header', style:{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'14px 20px',display:'flex',alignItems:'center',gap:10,flexShrink:0,position:'sticky',top:0,zIndex:100} },
       h('div', { style:{flex:'0 0 auto'} },
         h('h1', { style:{fontSize:18,fontWeight:600,margin:0,lineHeight:1} }, '🛒 Point of Sale'),
-        h('p', { style:{fontSize:11,color:'var(--muted)',margin:'3px 0 0'} }, inStockProducts.length+' products in stock')
+        h('p', { className:'pos-invoice-link', onClick:()=>setShowInvoiceSettings(true), title:'Invoice Template settings', style:{fontSize:11,color:'var(--muted)',margin:'3px 0 0',cursor:'pointer',transition:'color 0.15s'} }, 'Invoice & Receipt')
       ),
       /* Cart badge — next to title */
       posTab==='sale' && cart.length > 0 && h('span', { className:'pos-cart-badge', style:{background:'var(--amber)',color:'#fff',borderRadius:20,padding:'4px 12px',fontSize:12,fontWeight:600,whiteSpace:'nowrap',flexShrink:0} },
@@ -3376,6 +3415,9 @@ function POSView({ products, onBack, onCheckout, onPrintInvoice, onAddReceipt, d
             h('option', { value:'All' }, 'All categories'),
             cats.map(c => h('option', { key:c, value:c }, c))
           )
+        ),
+        h('p', { style:{fontSize:11,color:'var(--muted)',margin:'0 20px 8px',flexShrink:0} },
+          inStockProducts.length+' product'+(inStockProducts.length!==1?'s':'')+' — '+inStockProducts.reduce((s,p)=>s+p.stock_count,0)+' unit'+(inStockProducts.reduce((s,p)=>s+p.stock_count,0)!==1?'s':'')
         ),
         /* Product grid — scrollable */
         h('div', { style:{flex:1,overflowY:'auto',padding:20} },
@@ -4713,8 +4755,283 @@ function SupplierCropModal({ src, darkMode, onConfirm, onCancel, savedCrop, titl
   );
 }
 
+function InvoiceTemplateSection({ companyInfo, saveCompanyInfo, invoiceTemplate, saveInvoiceTemplate, bare }) {
+  const [invoicePreviewUrl, setInvoicePreviewUrl] = useState(null);
+  return h(Fragment, null,
+        h('div', bare ? { style:{display:'flex',flexDirection:'column'} } : { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
+          !bare && h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 6px'} }, '📋 Invoice Template'),
+          h('p', { style:{fontSize:12,color:'var(--muted)',marginBottom:14} }, 'Optionally upload a .docx to auto-fill fields. Edit fields below directly — they appear on every printed invoice.'),
+          /* ── docx upload / badge ── */
+          !invoiceTemplate
+            ? h(TemplateDropZone, { onFile: async file => {
+                if (!file) return;
+                if (!file.name.endsWith('.docx') && file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+                  alert('Please upload a .docx file.'); return;
+                }
+                try {
+                  const ab = await file.arrayBuffer();
+                  if (!window.mammoth) { alert('mammoth.js not loaded yet, please wait a moment and try again.'); return; }
+                  const result = await window.mammoth.extractRawText({ arrayBuffer: ab });
+                  const text = result.value;
+                  const parsed = parseDocxTemplate(text);
+                  saveInvoiceTemplate(JSON.stringify({ filename: file.name, rawText: text, parsed }));
+                  /* pre-fill companyInfo from parsed docx */
+                  saveCompanyInfo({ ...companyInfo,
+                    name: parsed.companyName || companyInfo.name,
+                    addr1: parsed.addr1 || companyInfo.addr1,
+                    addr2: parsed.addr2 || companyInfo.addr2,
+                    addr3: parsed.addr3 || companyInfo.addr3,
+                    email: parsed.email || companyInfo.email,
+                    phone: parsed.phone || companyInfo.phone,
+                    sortCode: parsed.sortCode || companyInfo.sortCode,
+                    account: parsed.account || companyInfo.account,
+                    payRef: parsed.payRef || companyInfo.payRef,
+                    bankName: parsed.bankName || companyInfo.bankName,
+                    terms: parsed.terms || companyInfo.terms,
+                  });
+                } catch(err) { alert('Could not read .docx: ' + err.message); }
+              }})
+            : (() => {
+                let tmpl = null;
+                try { tmpl = JSON.parse(invoiceTemplate); } catch(e) {}
+                if (!tmpl || !tmpl.filename) {
+                  return h('div', { style:{display:'flex',flexDirection:'column',gap:10,marginBottom:14} },
+                    h('div', { style:{fontSize:12,color:'var(--text)',background:'rgba(186,117,23,0.09)',border:'1px solid var(--amber)',borderRadius:8,padding:'8px 12px'} },
+                      '⚠️ A legacy image template is stored. Remove it and upload a .docx file instead.'
+                    ),
+                    h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px',borderColor:'#fca5a5',color:'#991b1b',width:'fit-content'},
+                      onClick:()=>{ if(confirm('Remove this template?')) saveInvoiceTemplate(null); }
+                    }, '🗑️ Remove')
+                  );
+                }
+                return h('div', { style:{display:'flex',flexDirection:'column',gap:10,marginBottom:14} },
+                  h('div', { style:{display:'flex',alignItems:'center',gap:10,background:'rgba(186,117,23,0.08)',border:'1px solid var(--amber)',borderRadius:8,padding:'10px 14px'} },
+                    h('span', { style:{fontSize:18} }, '📄'),
+                    h('div', { style:{flex:1,minWidth:0} },
+                      h('div', { style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, tmpl.filename),
+                      h('div', { style:{fontSize:11,color:'var(--muted)',marginTop:1} }, 'Fields below were pre-filled from this docx — edit freely')
+                    ),
+                    h('div', { style:{display:'flex',gap:6,flexShrink:0} },
+                      h('label', { style:{fontSize:11,padding:'5px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4} },
+                        '🔄',
+                        h('input', { type:'file', accept:'.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document', style:{display:'none'},
+                          onChange: async e => {
+                            const file = e.target.files?.[0]; if (!file) return;
+                            try {
+                              const ab = await file.arrayBuffer();
+                              const result = await window.mammoth.extractRawText({ arrayBuffer: ab });
+                              const parsed = parseDocxTemplate(result.value);
+                              saveInvoiceTemplate(JSON.stringify({ filename: file.name, rawText: result.value, parsed }));
+                              saveCompanyInfo({ ...companyInfo,
+                                name: parsed.companyName || companyInfo.name,
+                                addr1: parsed.addr1 || companyInfo.addr1,
+                                addr2: parsed.addr2 || companyInfo.addr2,
+                                addr3: parsed.addr3 || companyInfo.addr3,
+                                email: parsed.email || companyInfo.email,
+                                phone: parsed.phone || companyInfo.phone,
+                                sortCode: parsed.sortCode || companyInfo.sortCode,
+                                account: parsed.account || companyInfo.account,
+                                payRef: parsed.payRef || companyInfo.payRef,
+                                bankName: parsed.bankName || companyInfo.bankName,
+                                terms: parsed.terms || companyInfo.terms,
+                              });
+                            } catch(err) { alert('Could not read .docx: ' + err.message); }
+                            e.target.value='';
+                          }
+                        })
+                      ),
+                      h('button', {
+                        onClick:()=>{ if(confirm('Remove invoice template?')) saveInvoiceTemplate(null); },
+                        style:{fontSize:11,padding:'5px 10px',borderRadius:7,border:'1px solid #fca5a5',background:'none',color:'#991b1b',cursor:'pointer'}
+                      }, '🗑️')
+                    )
+                  )
+                );
+              })(),
+          /* ── Editable fields ── always shown ── */
+          h('div', { style:{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',marginTop: invoiceTemplate ? 0 : 14,display:'flex',flexDirection:'column',gap:16} },
+            h('div', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.05em'} }, 'Extracted fields (applied to invoices)'),
+            /* 🏪 Store Info */
+            h('div', null,
+              h('div', { style:{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:10,display:'flex',alignItems:'center',gap:6} }, '🏪 Store Info'),
+              h('div', { style:{display:'grid',gap:8} },
+                /* Logo */
+                h('div', null,
+                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:6} }, 'Logo (shown in invoice)'),
+                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                    companyInfo.logoDataUrl && h('img', { src:companyInfo.logoDataUrl, style:{width:48,height:48,borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)',flexShrink:0} }),
+                    h('div', { style:{display:'flex',gap:8,flexWrap:'wrap'} },
+                      h('label', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',cursor:'pointer'} },
+                        companyInfo.logoDataUrl ? '🔄 Replace logo' : '⬆ Upload logo',
+                        h('input', { type:'file', accept:'image/*', style:{display:'none'},
+                          onChange:e => {
+                            const file = e.target.files[0]; if (!file) return;
+                            const r = new FileReader();
+                            r.onload = ev => saveCompanyInfo({...companyInfo, logoDataUrl: ev.target.result});
+                            r.readAsDataURL(file);
+                          }
+                        })
+                      ),
+                      companyInfo.logoDataUrl && h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',borderColor:'#fca5a5',color:'#991b1b'},
+                        onClick:()=>saveCompanyInfo({...companyInfo,logoDataUrl:null}) }, 'Remove')
+                    )
+                  )
+                ),
+                ...[['name','Store Name','Your Store']].map(([k,label,ph]) =>
+                  h('div', { key:k },
+                    h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, label),
+                    h('input', { className:'field-input', placeholder:ph, value:companyInfo[k]||'', style:{width:'100%',fontSize:13,boxSizing:'border-box'},
+                      onChange:e=>saveCompanyInfo({...companyInfo,[k]:e.target.value}) })
+                  )
+                ),
+                h('div', { key:'address' },
+                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, 'Address Line'),
+                  h('textarea', { className:'field-input', rows:2, placeholder:'12 Example Ave\nCity', value:[(companyInfo.addr1||''),(companyInfo.addr2||'')].filter(Boolean).join('\n')||'', style:{width:'100%',fontSize:13,boxSizing:'border-box',resize:'none',lineHeight:'1.5'},
+                    onChange:e=>{ const lines=e.target.value.split('\n'); saveCompanyInfo({...companyInfo, addr1:lines[0]||'', addr2:lines[1]||''}); }
+                  })
+                ),
+                ...[['addr3','Postcode / Region','AB1 2CD'],['email','Email','hello@example.com'],['phone','Phone','0712345678']].map(([k,label,ph]) =>
+                  h('div', { key:k },
+                    h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, label),
+                    h('input', { className:'field-input', placeholder:ph, value:companyInfo[k]||'', style:{width:'100%',fontSize:13,boxSizing:'border-box'},
+                      onChange:e=>saveCompanyInfo({...companyInfo,[k]:e.target.value}) })
+                  )
+                ),
+                /* Telegram QR */
+                h('div', null,
+                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:6} }, 'Telegram QR (shown in invoice)'),
+                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                    companyInfo.logoDataUrl2 && h('img', { src:companyInfo.logoDataUrl2, style:{width:48,height:48,borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)',flexShrink:0} }),
+                    h('div', { style:{display:'flex',gap:8,flexWrap:'wrap'} },
+                      h('label', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',cursor:'pointer'} },
+                        companyInfo.logoDataUrl2 ? '🔄 Replace logo' : '⬆ Upload logo',
+                        h('input', { type:'file', accept:'image/*', style:{display:'none'},
+                          onChange:e => {
+                            const file = e.target.files[0]; if (!file) return;
+                            const r = new FileReader();
+                            r.onload = ev => saveCompanyInfo({...companyInfo, logoDataUrl2: ev.target.result});
+                            r.readAsDataURL(file);
+                          }
+                        })
+                      ),
+                      companyInfo.logoDataUrl2 && h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',borderColor:'#fca5a5',color:'#991b1b'},
+                        onClick:()=>saveCompanyInfo({...companyInfo,logoDataUrl2:null}) }, 'Remove')
+                    )
+                  )
+                )
+              )
+            ),
+            h('div', { style:{borderTop:'1px solid var(--border)',marginTop:2} }),
+            /* 🏦 Payment Details */
+            h('div', null,
+              h('div', { style:{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:10,display:'flex',alignItems:'center',gap:6} }, '🏦 Payment Details'),
+              h('div', { style:{display:'grid',gap:8} },
+                [['sortCode','Sort Code','123456'],['account','Account Number','12345678'],['payRef','Payment Reference','Customer Ref'],['bankName','Bank Name','e.g. Barclays']].map(([k,label,ph]) =>
+                  h('div', { key:k },
+                    h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, label),
+                    h('input', { className:'field-input', placeholder:ph, value:companyInfo[k]||'', style:{width:'100%',fontSize:13,boxSizing:'border-box'},
+                      onChange:e=>saveCompanyInfo({...companyInfo,[k]:e.target.value}) })
+                  )
+                ),
+                /* Bank KHQR Payment */
+                h('div', null,
+                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:6} }, 'Bank KHQR Payment (shown in invoice)'),
+                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
+                    companyInfo.logoDataUrl3 && h('img', { src:companyInfo.logoDataUrl3, style:{width:48,height:48,borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)',flexShrink:0} }),
+                    h('div', { style:{display:'flex',gap:8,flexWrap:'wrap'} },
+                      h('label', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',cursor:'pointer'} },
+                        companyInfo.logoDataUrl3 ? '🔄 Replace logo' : '⬆ Upload logo',
+                        h('input', { type:'file', accept:'image/*', style:{display:'none'},
+                          onChange:e => {
+                            const file = e.target.files[0]; if (!file) return;
+                            const r = new FileReader();
+                            r.onload = ev => saveCompanyInfo({...companyInfo, logoDataUrl3: ev.target.result});
+                            r.readAsDataURL(file);
+                          }
+                        })
+                      ),
+                      companyInfo.logoDataUrl3 && h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',borderColor:'#fca5a5',color:'#991b1b'},
+                        onClick:()=>saveCompanyInfo({...companyInfo,logoDataUrl3:null}) }, 'Remove')
+                    )
+                  )
+                )
+              )
+            ),
+            h('div', { style:{borderTop:'1px solid var(--border)',marginTop:2} }),
+            /* Terms */
+            h('div', null,
+              h('div', { style:{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:8} }, '📝 Terms & Conditions (one per line)'),
+              h('textarea', { className:'field-input', rows:4,
+                placeholder:'Add payment instructions here\nAdd terms here, e.g: warranty, returns policy...',
+                value:companyInfo.terms||'',
+                style:{width:'100%',fontSize:13,boxSizing:'border-box',resize:'vertical'},
+                onChange:e=>saveCompanyInfo({...companyInfo,terms:e.target.value}) })
+            )
+          ),
+          /* ── Preview / action row ── */
+          h('div', { style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:14} },
+            h('button', {
+              onClick: async () => {
+                const sampleInvoice = {
+                  ts: new Date().toISOString(),
+                  clientName: 'Sample Client Ltd',
+                  clientAddr1: '123 Example Street',
+                  clientAddr2: 'London, EC1A 1BB',
+                  clientAddr3: '',
+                  currency: '$',
+                  subtotal: 250.00,
+                  taxEnabled: true,
+                  taxPct: 20,
+                  taxAmt: 50.00,
+                  discountAmt: 0,
+                  total: 300.00,
+                  items: [
+                    { product_name: 'Sample Product A', qty: 2, estimated_price: 75.00 },
+                    { product_name: 'Sample Product B', qty: 1, estimated_price: 100.00 },
+                  ]
+                };
+                try {
+                  const blob = await generateInvoiceImage(sampleInvoice, 'INV-PREVIEW', '0001');
+                  setInvoicePreviewUrl(URL.createObjectURL(blob));
+                } catch(err) { alert('Could not generate preview: ' + err.message); }
+              },
+              style:{fontSize:12,padding:'7px 14px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:5}
+            }, '👁 Preview Invoice')
+          )
+        ),
+                invoicePreviewUrl && h('div', {
+                  style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.72)',zIndex:9999,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-start',overflowY:'auto',padding:'24px 16px'},
+                  onClick: e => { if (e.target === e.currentTarget) { URL.revokeObjectURL(invoicePreviewUrl); setInvoicePreviewUrl(null); } }
+                },
+                  h('div', { style:{width:'100%',maxWidth:540,display:'flex',flexDirection:'column',gap:0} },
+                    /* toolbar */
+                    h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12} },
+                      h('span', { style:{color:'#fff',fontSize:14,fontWeight:600} }, '📋 Invoice Preview'),
+                      h('div', { style:{display:'flex',gap:8} },
+                        h('a', {
+                          href: invoicePreviewUrl,
+                          download: 'invoice-preview.jpg',
+                          style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,0.3)',background:'rgba(255,255,255,0.1)',color:'#fff',textDecoration:'none',display:'inline-flex',alignItems:'center',gap:5}
+                        }, '⬇ Download'),
+                        h('button', {
+                          onClick:()=>{ URL.revokeObjectURL(invoicePreviewUrl); setInvoicePreviewUrl(null); },
+                          style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,0.3)',background:'rgba(255,255,255,0.1)',color:'#fff',cursor:'pointer'}
+                        }, '✕ Close')
+                      )
+                    ),
+                    h('p', { style:{color:'rgba(255,255,255,0.55)',fontSize:11,marginBottom:14,marginTop:-4} }, 'Sample data shown — your real invoices will use actual cart items and client details.'),
+                    /* invoice image */
+                    h('img', {
+                      src: invoicePreviewUrl,
+                      style:{width:'100%',borderRadius:10,boxShadow:'0 8px 40px rgba(0,0,0,0.5)',display:'block'}
+                    })
+                  )
+                )
+  );
+}
+
 function App() {
-  const [view, setViewRaw]          = useState(() => { const v = localStorage.getItem('lastView'); return (v === 'lowstock' || v === 'settings' || v === 'upload' || v === 'dashboard' || v === 'report' || v === 'history' || v === 'pos' || v === 'suppliers' || v === 'lowstock') ? v : 'dashboard'; });
+  const [view, setViewRaw]          = useState(() => { const v = localStorage.getItem('lastView'); return (v === 'lowstock' || v === 'upload' || v === 'dashboard' || v === 'pos' || v === 'suppliers' || v === 'lowstock') ? v : 'dashboard'; });
   const setView = v => { setViewRaw(v); localStorage.setItem('lastView', v); };
   const [navHidden, setNavHidden] = useState(false);
   useEffect(() => {
@@ -4874,7 +5191,10 @@ function App() {
     const measure = () => {
       const el = reorderContentColRef.current;
       const navEl = document.querySelector('.left-nav');
-      const navWidth = navEl ? navEl.getBoundingClientRect().width : 0;
+      const navRect = navEl ? navEl.getBoundingClientRect() : null;
+      // when the nav becomes a bottom bar (narrow screens) it spans the full width,
+      // so it no longer occupies a left-edge strip — treat its width as 0 in that case.
+      const navWidth = navRect && navRect.width < window.innerWidth * 0.6 ? navRect.width : 0;
       if (!el) { setReorderEdgeBounds({ left:0, right:0, navWidth }); return; }
       const r = el.getBoundingClientRect();
       setReorderEdgeBounds({ left: Math.max(0, r.left), right: Math.max(0, window.innerWidth - r.right), navWidth });
@@ -4918,8 +5238,6 @@ function App() {
   const [pendingSupGroupExpanded, setPendingSupGroupExpanded] = useState({});
   const [purchaseQrGroupExpanded,  setPurchaseQrGroupExpanded]  = useState({});
   const [purchaseSupGroupExpanded, setPurchaseSupGroupExpanded] = useState({});
-  const [brandingFlash, setBrandingFlash] = useState(false);
-  const [apiKeyFlash, setApiKeyFlash] = useState(false);
   const [products, setProducts]     = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [productTypes, setProductTypes] = useState(DEFAULT_PRODUCT_TYPES);
@@ -6278,18 +6596,7 @@ function App() {
       h('span', null, navHidden ? '>' : '<')
     ),
     h('nav', { className:'left-nav' },
-    h('div', { className:'nav-logo', title:'Go to Settings', onClick:()=>{ setView('settings'); setBrandingFlash(false); setTimeout(()=>{ setBrandingFlash(true); window.scrollTo({ top:0, behavior:'smooth' }); setTimeout(()=>setBrandingFlash(false), 1900); }, 30); }, style:{cursor:'pointer'} },
-      companyInfo.logoDataUrl
-        ? h('img', { src:companyInfo.logoDataUrl, alt:'logo' })
-        : h('span', null, '📦'),
-      companyInfo.name && h('div', { className:'nav-store-name' }, companyInfo.name)
-    ),
-    h('div', { className:'nav-sep' }),
     h('div', { className:'nav-scroll' },
-      h('button', { className:'nav-item' + (view==='report'?' active':''), title:'Report', onClick:()=>setView('report') },
-        h('span', { className:'nav-icon' }, '📊'),
-        h('span', { className:'nav-label' }, 'Report')
-      ),
       h('button', { className:'nav-item' + (view==='dashboard'?' active':''), title:'Dashboard', onClick:()=>setView('dashboard') },
         h('span', { className:'nav-icon' }, '📦'),
         h('span', { className:'nav-label' }, 'Product')
@@ -6299,7 +6606,7 @@ function App() {
         h('span', { className:'nav-label' }, 'Add'),
         queue.length > 0 && h('span', { className:'nav-badge' }, queue.length)
       ),
-      h('button', { className:'nav-item' + (view==='lowstock'?' active':''), title:'Reorder', onClick:()=>{ if(view==='lowstock'){ setStockTab('ordering'); setOrderingSubTab('pending'); } else { setView('lowstock'); } },
+      h('button', { className:'nav-item' + (view==='lowstock'?' active':''), title:'Inventory', onClick:()=>{ if(view==='lowstock'){ setStockTab('ordering'); setOrderingSubTab('pending'); } else { setView('lowstock'); } },
         style: products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length>0 ? {position:'relative'} : {} },
         h('span', { className:'nav-icon' },
           h('svg', { width:18, height:18, viewBox:'0 0 24 24', fill:'none', stroke:'currentColor', strokeWidth:2, strokeLinecap:'round', strokeLinejoin:'round' },
@@ -6309,20 +6616,12 @@ function App() {
             h('path', { d:'M8 16H3v5' })
           )
         ),
-        h('span', { className:'nav-label' }, 'Reorder'),
+        h('span', { className:'nav-label' }, 'Inventory'),
         products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length > 0 && h('span', { className:'nav-badge', style:{background:'#ef4444'} }, products.filter(p => !p.pending_new && (lowStockOp==='lte' ? (p.stock_count>0 && p.stock_count<=lowStockN)||p.stock_count===0 : (p.stock_count>0 && p.stock_count<lowStockN)||p.stock_count===0)).length)
       ),
       h('button', { className:'nav-item' + (view==='pos'?' active':''), title:'Point of Sale', onClick:()=>setView('pos') },
         h('span', { className:'nav-icon' }, '🛒'),
         h('span', { className:'nav-label' }, 'POS')
-      ),
-      h('button', { className:'nav-item' + (view==='history'?' active':''), title:'History', onClick:()=>setView('history') },
-        h('span', { className:'nav-icon' }, '🕓'),
-        h('span', { className:'nav-label' }, 'History')
-      ),
-      h('button', { className:'nav-item' + (view==='settings'?' active':''), title:'Settings', onClick:()=>{ setView('settings'); setBrandingFlash(false); setApiKeyFlash(false); } },
-        h('span', { className:'nav-icon' }, '⚙️'),
-        h('span', { className:'nav-label nav-label-settings' }, 'Settings')
       )
     ),
     h('div', { className:'nav-sep' }),
@@ -6609,7 +6908,7 @@ function App() {
 
     return h('div', { style:{position:'relative'} },
       leftNav,
-      toast && h('div', { style:{
+      toast && h('div', { className:'app-toast', style:{
         position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
         background: toast.type === 'error' ? '#450a0a' : '#052e16',
         border: `1px solid ${toast.type === 'error' ? '#991b1b' : '#166534'}`,
@@ -8536,558 +8835,11 @@ function App() {
     );
   }
 
-  /* ── REPORT PAGE ── */
-  if (view==='report') {
-    const reportProducts = products.filter(p => !p.pending_new);
-    const totalProducts = reportProducts.length;
-    const totalUnits = reportProducts.reduce((s,p) => s+p.stock_count, 0);
-    const totalValue = reportProducts.reduce((s,p) => s+(p.estimated_price||0)*p.stock_count, 0);
-    const outOfStockItems = reportProducts.filter(p => p.stock_count===0);
-    const lowStockItems = reportProducts.filter(p => p.stock_count>0 && (lowStockOp==='lte' ? p.stock_count<=lowStockN : p.stock_count<lowStockN));
-    const catBreakdown = categories.map(cat => {
-      const catProds = reportProducts.filter(p => p.category===cat);
-      return { cat, count: catProds.length, units: catProds.reduce((s,p)=>s+p.stock_count,0), value: catProds.reduce((s,p)=>s+(p.estimated_price||0)*p.stock_count,0) };
-    }).filter(c => c.count>0).sort((a,b)=>b.value-a.value);
-    const topProducts = [...reportProducts].sort((a,b)=>(b.estimated_price||0)*b.stock_count-(a.estimated_price||0)*a.stock_count).slice(0,5);
-    const recentProducts = [...products].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,5);
-    const fmt = n => '$'+n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-
-    return h('div', { style:{position:'relative'} },
-      leftNav,
-      h('div', { className:'with-left-nav', style:{minHeight:'100vh',background:'var(--bg)'} },
-        h('div', { style:{maxWidth:760,margin:'0 auto',padding:'0 24px 48px'} },
-          /* Header */
-          h('div', { style:{position:'sticky',top:0,zIndex:100,background:'var(--bg)',paddingTop:28,paddingBottom:14,marginBottom:16} },
-            h('h1', { style:{fontSize:22,fontWeight:700,margin:0,color:'var(--text)'} }, '📊 Inventory Report'),
-            h('p', { style:{fontSize:13,color:'var(--muted)',margin:'4px 0 0'} }, 'Overview of your current inventory')
-          ),
-
-          /* KPI cards row */
-          h('div', { style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:20} },
-            [
-              { label:'Total Products', value: totalProducts, icon:'📦' },
-              { label:'Total Units', value: totalUnits, icon:'🗂' },
-              { label:'Total Value', value: fmt(totalValue), icon:'💰' },
-              { label:'Out of Stock', value: outOfStockItems.length, icon:'⚠️', red: outOfStockItems.length>0 },
-            ].map((s,i) => h('div', { key:i, style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 16px'} },
-              h('div', { style:{fontSize:20,marginBottom:6} }, s.icon),
-              h('div', { style:{fontSize:s.value.toString().length>6?18:22,fontWeight:600,color:s.red?'#ef4444':'var(--text)',lineHeight:1.2} }, s.value),
-              h('div', { style:{fontSize:11,color:'var(--muted)',marginTop:4} }, s.label)
-            ))
-          ),
-
-          /* Category breakdown */
-          h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
-            h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 14px'} }, '🗂️ Category Breakdown'),
-            catBreakdown.length === 0
-              ? h('p', { style:{fontSize:13,color:'var(--subtle)',fontStyle:'italic'} }, 'No products yet.')
-              : h('div', { style:{display:'flex',flexDirection:'column',gap:0} },
-                  catBreakdown.map((c,i) => {
-                    const pct = totalValue > 0 ? (c.value/totalValue*100) : 0;
-                    return h('div', { key:i, style:{display:'grid',gridTemplateColumns:'1fr 60px 60px 90px',alignItems:'center',gap:12,padding:'9px 0',borderBottom: i<catBreakdown.length-1?'1px solid var(--border)':'none'} },
-                      h('div', null,
-                        h('div', { style:{fontSize:13,fontWeight:500,color:'var(--text)',marginBottom:4} }, c.cat),
-                        h('div', { style:{height:5,borderRadius:4,background:'var(--border)',overflow:'hidden'} },
-                          h('div', { style:{height:'100%',width:pct+'%',background:'var(--amber)',borderRadius:4,transition:'width 0.4s'} })
-                        )
-                      ),
-                      h('div', { style:{textAlign:'right',fontSize:12,color:'var(--muted)'} }, c.count+' prod.'),
-                      h('div', { style:{textAlign:'right',fontSize:12,color:'var(--muted)'} }, c.units+' units'),
-                      h('div', { style:{textAlign:'right',fontSize:13,fontWeight:600,color:'var(--text)',fontFamily:'var(--mono)'} }, fmt(c.value))
-                    );
-                  })
-                )
-          ),
-
-          /* Top 5 products by value */
-          h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
-            h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 14px'} }, '🏆 Top Products by Stock Value'),
-            topProducts.length === 0
-              ? h('p', { style:{fontSize:13,color:'var(--subtle)',fontStyle:'italic'} }, 'No products yet.')
-              : h('div', { style:{display:'flex',flexDirection:'column',gap:0} },
-                  topProducts.map((p,i) => h('div', { key:p.id, style:{display:'flex',alignItems:'center',gap:12,padding:'9px 0',borderBottom: i<topProducts.length-1?'1px solid var(--border)':'none'} },
-                    h('div', { style:{width:28,height:28,borderRadius:8,overflow:'hidden',flexShrink:0,background:'var(--bg)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center'} },
-                      p.image_url ? h('img',{src:p.image_url,style:{width:'100%',height:'100%',objectFit:'contain'}}) : h('span',{style:{fontSize:14}},'📦')
-                    ),
-                    h('div', { style:{flex:1,minWidth:0} },
-                      h('div', { style:{fontSize:13,fontWeight:500,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, p.product_name||'Unnamed'),
-                      h('div', { style:{fontSize:11,color:'var(--muted)'} }, p.category)
-                    ),
-                    h('div', { style:{fontSize:11,color:'var(--muted)',flexShrink:0} }, p.stock_count+' units'),
-                    h('div', { style:{fontSize:13,fontWeight:600,color:'var(--text)',fontFamily:'var(--mono)',flexShrink:0,minWidth:72,textAlign:'right'} }, fmt((p.estimated_price||0)*p.stock_count))
-                  ))
-                )
-          ),
-
-          /* Low stock & Out of stock */
-          h('div', { style:{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:16} },
-            h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'16px 18px'} },
-              h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 10px'} }, '⚠️ Low Stock (≤3)'),
-              lowStockItems.length === 0
-                ? h('p', { style:{fontSize:12,color:'var(--subtle)',fontStyle:'italic'} }, 'None — looking good!')
-                : h('div', { style:{display:'flex',flexDirection:'column',gap:6} },
-                    lowStockItems.slice(0,6).map(p => h('div', { key:p.id, style:{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12} },
-                      h('span', { style:{color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'70%'} }, p.product_name||'Unnamed'),
-                      h('span', { style:{background:'#fef3c7',color:'#92400e',padding:'1px 7px',borderRadius:10,fontWeight:600,flexShrink:0} }, p.stock_count+' left')
-                    ))
-                  )
-            ),
-            h('div', { style:{background:'var(--surface)',border:'1px solid #fca5a5',borderRadius:12,padding:'16px 18px'} },
-              h('h2', { style:{fontSize:11,fontWeight:700,color:'#991b1b',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 10px'} }, '🚫 Out of Stock'),
-              outOfStockItems.length === 0
-                ? h('p', { style:{fontSize:12,color:'var(--subtle)',fontStyle:'italic'} }, 'None — all in stock!')
-                : h('div', { style:{display:'flex',flexDirection:'column',gap:6} },
-                    outOfStockItems.slice(0,6).map(p => h('div', { key:p.id, style:{display:'flex',justifyContent:'space-between',alignItems:'center',fontSize:12} },
-                      h('span', { style:{color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:'75%'} }, p.product_name||'Unnamed'),
-                      h('span', { style:{color:'var(--muted)'} }, p.category)
-                    ))
-                  )
-            )
-          ),
-
-          /* Recently added */
-          h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'} },
-            h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 14px'} }, '🕓 Recently Added'),
-            recentProducts.length === 0
-              ? h('p', { style:{fontSize:13,color:'var(--subtle)',fontStyle:'italic'} }, 'No products yet.')
-              : h('div', { style:{display:'flex',flexDirection:'column',gap:0} },
-                  recentProducts.map((p,i) => h('div', { key:p.id, style:{display:'flex',alignItems:'center',gap:12,padding:'9px 0',borderBottom: i<recentProducts.length-1?'1px solid var(--border)':'none'} },
-                    h('div', { style:{width:28,height:28,borderRadius:8,overflow:'hidden',flexShrink:0,background:'var(--bg)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center'} },
-                      p.image_url ? h('img',{src:p.image_url,style:{width:'100%',height:'100%',objectFit:'contain'}}) : h('span',{style:{fontSize:14}},'📦')
-                    ),
-                    h('div', { style:{flex:1,minWidth:0} },
-                      h('div', { style:{fontSize:13,fontWeight:500,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, p.product_name||'Unnamed'),
-                      h('div', { style:{fontSize:11,color:'var(--muted)'} }, p.category)
-                    ),
-                    h('div', { style:{fontSize:11,color:'var(--muted)',flexShrink:0} }, new Date(p.timestamp).toLocaleDateString())
-                  ))
-                )
-          )
-        )
-      )
-    );
-  }
-
-  /* ── HISTORY PAGE ── */
-  if (view==='history') return h('div', { style:{position:'relative'} },
-    leftNav,
-    h('div', { className:'with-left-nav', style:{height:'100vh',display:'flex',flexDirection:'column',background:'var(--bg)'} },
-      h(HistoryPage, {
-        history: ieHistory,
-        products,
-        onClear: async () => {
-          if (!confirm('Clear all import/export history?')) return;
-          setIEHistory([]);
-          try { await window.storage?.set('inv-ie-history', '[]'); } catch(e) {}
-        },
-        onRecover: async entry => {
-          if (!confirm('Recover this snapshot? Current data will be replaced.')) return;
-          setProducts(entry.products);
-          try { await window.storage?.set('inv-products', JSON.stringify(entry.products)); } catch(e) {}
-          setView('dashboard');
-        },
-        onEdit: p => { setEditTarget(p); setView('dashboard'); }
-      })
-    )
-  );
-
-  /* -- SETTINGS PAGE -- */
-  if (view==='settings') return h('div', { style:{position:'relative'} },
-    leftNav,
-    h('div', { className:'with-left-nav', style:{minHeight:'100vh',background:'var(--bg)'} },
-      h('div', { className:'settings-page', style:{maxWidth:620,margin:'0 auto',padding:'0 24px 48px'} },
-        h('div', { style:{position:'sticky',top:0,zIndex:100,background:'var(--bg)',paddingTop:28,paddingBottom:16,marginBottom:12,borderRadius:0} },
-          h('h1', { style:{fontSize:22,fontWeight:700,margin:0,color:'var(--text)'} }, '⚙️ Settings'),
-          h('p', { style:{fontSize:13,color:'var(--muted)',margin:'4px 0 0'} }, 'Configure your inventory preferences')
-        ),
-
-        h('div', { className: 'branding-section-card' + (brandingFlash ? ' branding-highlight' : ''), style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
-          h('p', { style:{fontSize:12,color:'var(--muted)',marginBottom:14} }, 'Your logo and store name shown in the navigation sidebar.'),
-          h('div', { style:{display:'flex',gap:16,alignItems:'flex-start'} },
-            /* Live nav preview */
-            h('div', { style:{display:'flex',flexDirection:'column',alignItems:'center',gap:6,flexShrink:0} },
-              h('div', { style:{width:60,background:'var(--bg)',border:'1px solid var(--border)',borderRadius:10,padding:'10px 6px',display:'flex',flexDirection:'column',alignItems:'center',gap:4} },
-                companyInfo.logoDataUrl
-                  ? h('img', { src:companyInfo.logoDataUrl, style:{width:32,height:32,borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)',display:'block'} })
-                  : h('span', { style:{fontSize:22,lineHeight:1} }, '📦'),
-                companyInfo.name
-                  ? h('div', { style:{fontSize:8,fontWeight:600,color:'var(--muted)',textAlign:'center',maxWidth:50,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:'0.02em'} }, companyInfo.name)
-                  : h('div', { style:{fontSize:8,color:'var(--subtle)',textAlign:'center'} }, 'name')
-              ),
-              h('span', { style:{fontSize:10,color:'var(--subtle)'} }, 'Preview')
-            ),
-            /* Fields */
-            h('div', { style:{flex:1,display:'flex',flexDirection:'column',gap:10} },
-              h('div', null,
-                h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, 'Store Name'),
-                h('input', { className:'field-input', placeholder:'Your Store', value:companyInfo.name||'', style:{width:'100%',fontSize:13,boxSizing:'border-box'},
-                  onChange:e=>saveCompanyInfo({...companyInfo, name:e.target.value}) })
-              ),
-              h('div', null,
-                h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:6} }, 'Logo'),
-                h('div', { style:{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'} },
-                  h('label', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4} },
-                    companyInfo.logoDataUrl ? '🔄 Replace' : '⬆ Upload',
-                    h('input', { type:'file', accept:'image/*', style:{display:'none'},
-                      onChange:e => {
-                        const file = e.target.files[0]; if (!file) return;
-                        const r = new FileReader();
-                        r.onload = ev => saveCompanyInfo({...companyInfo, logoDataUrl: ev.target.result});
-                        r.readAsDataURL(file);
-                      }
-                    })
-                  ),
-                  companyInfo.logoDataUrl && h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',borderColor:'#fca5a5',color:'#991b1b'},
-                    onClick:()=>saveCompanyInfo({...companyInfo, logoDataUrl:null}) }, 'Remove')
-                )
-              )
-            )
-          )
-        ),
-
-        h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
-          h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 6px'} }, '📋 Invoice Template'),
-          h('p', { style:{fontSize:12,color:'var(--muted)',marginBottom:14} }, 'Optionally upload a .docx to auto-fill fields. Edit fields below directly — they appear on every printed invoice.'),
-          /* ── docx upload / badge ── */
-          !invoiceTemplate
-            ? h(TemplateDropZone, { onFile: async file => {
-                if (!file) return;
-                if (!file.name.endsWith('.docx') && file.type !== 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-                  alert('Please upload a .docx file.'); return;
-                }
-                try {
-                  const ab = await file.arrayBuffer();
-                  if (!window.mammoth) { alert('mammoth.js not loaded yet, please wait a moment and try again.'); return; }
-                  const result = await window.mammoth.extractRawText({ arrayBuffer: ab });
-                  const text = result.value;
-                  const parsed = parseDocxTemplate(text);
-                  saveInvoiceTemplate(JSON.stringify({ filename: file.name, rawText: text, parsed }));
-                  /* pre-fill companyInfo from parsed docx */
-                  saveCompanyInfo({ ...companyInfo,
-                    name: parsed.companyName || companyInfo.name,
-                    addr1: parsed.addr1 || companyInfo.addr1,
-                    addr2: parsed.addr2 || companyInfo.addr2,
-                    addr3: parsed.addr3 || companyInfo.addr3,
-                    email: parsed.email || companyInfo.email,
-                    phone: parsed.phone || companyInfo.phone,
-                    sortCode: parsed.sortCode || companyInfo.sortCode,
-                    account: parsed.account || companyInfo.account,
-                    payRef: parsed.payRef || companyInfo.payRef,
-                    bankName: parsed.bankName || companyInfo.bankName,
-                    terms: parsed.terms || companyInfo.terms,
-                  });
-                } catch(err) { alert('Could not read .docx: ' + err.message); }
-              }})
-            : (() => {
-                let tmpl = null;
-                try { tmpl = JSON.parse(invoiceTemplate); } catch(e) {}
-                if (!tmpl || !tmpl.filename) {
-                  return h('div', { style:{display:'flex',flexDirection:'column',gap:10,marginBottom:14} },
-                    h('div', { style:{fontSize:12,color:'var(--text)',background:'rgba(186,117,23,0.09)',border:'1px solid var(--amber)',borderRadius:8,padding:'8px 12px'} },
-                      '⚠️ A legacy image template is stored. Remove it and upload a .docx file instead.'
-                    ),
-                    h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px',borderColor:'#fca5a5',color:'#991b1b',width:'fit-content'},
-                      onClick:()=>{ if(confirm('Remove this template?')) saveInvoiceTemplate(null); }
-                    }, '🗑️ Remove')
-                  );
-                }
-                return h('div', { style:{display:'flex',flexDirection:'column',gap:10,marginBottom:14} },
-                  h('div', { style:{display:'flex',alignItems:'center',gap:10,background:'rgba(186,117,23,0.08)',border:'1px solid var(--amber)',borderRadius:8,padding:'10px 14px'} },
-                    h('span', { style:{fontSize:18} }, '📄'),
-                    h('div', { style:{flex:1,minWidth:0} },
-                      h('div', { style:{fontSize:13,fontWeight:600,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'} }, tmpl.filename),
-                      h('div', { style:{fontSize:11,color:'var(--muted)',marginTop:1} }, 'Fields below were pre-filled from this docx — edit freely')
-                    ),
-                    h('div', { style:{display:'flex',gap:6,flexShrink:0} },
-                      h('label', { style:{fontSize:11,padding:'5px 10px',borderRadius:7,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4} },
-                        '🔄',
-                        h('input', { type:'file', accept:'.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document', style:{display:'none'},
-                          onChange: async e => {
-                            const file = e.target.files?.[0]; if (!file) return;
-                            try {
-                              const ab = await file.arrayBuffer();
-                              const result = await window.mammoth.extractRawText({ arrayBuffer: ab });
-                              const parsed = parseDocxTemplate(result.value);
-                              saveInvoiceTemplate(JSON.stringify({ filename: file.name, rawText: result.value, parsed }));
-                              saveCompanyInfo({ ...companyInfo,
-                                name: parsed.companyName || companyInfo.name,
-                                addr1: parsed.addr1 || companyInfo.addr1,
-                                addr2: parsed.addr2 || companyInfo.addr2,
-                                addr3: parsed.addr3 || companyInfo.addr3,
-                                email: parsed.email || companyInfo.email,
-                                phone: parsed.phone || companyInfo.phone,
-                                sortCode: parsed.sortCode || companyInfo.sortCode,
-                                account: parsed.account || companyInfo.account,
-                                payRef: parsed.payRef || companyInfo.payRef,
-                                bankName: parsed.bankName || companyInfo.bankName,
-                                terms: parsed.terms || companyInfo.terms,
-                              });
-                            } catch(err) { alert('Could not read .docx: ' + err.message); }
-                            e.target.value='';
-                          }
-                        })
-                      ),
-                      h('button', {
-                        onClick:()=>{ if(confirm('Remove invoice template?')) saveInvoiceTemplate(null); },
-                        style:{fontSize:11,padding:'5px 10px',borderRadius:7,border:'1px solid #fca5a5',background:'none',color:'#991b1b',cursor:'pointer'}
-                      }, '🗑️')
-                    )
-                  )
-                );
-              })(),
-          /* ── Editable fields ── always shown ── */
-          h('div', { style:{background:'var(--bg)',border:'1px solid var(--border)',borderRadius:10,padding:'14px 16px',marginTop: invoiceTemplate ? 0 : 14,display:'flex',flexDirection:'column',gap:16} },
-            h('div', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.05em'} }, 'Extracted fields (applied to invoices)'),
-            /* 🏪 Store Info */
-            h('div', null,
-              h('div', { style:{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:10,display:'flex',alignItems:'center',gap:6} }, '🏪 Store Info'),
-              h('div', { style:{display:'grid',gap:8} },
-                /* Logo */
-                h('div', null,
-                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:6} }, 'Logo (shown in invoice)'),
-                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
-                    companyInfo.logoDataUrl && h('img', { src:companyInfo.logoDataUrl, style:{width:48,height:48,borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)',flexShrink:0} }),
-                    h('div', { style:{display:'flex',gap:8,flexWrap:'wrap'} },
-                      h('label', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',cursor:'pointer'} },
-                        companyInfo.logoDataUrl ? '🔄 Replace logo' : '⬆ Upload logo',
-                        h('input', { type:'file', accept:'image/*', style:{display:'none'},
-                          onChange:e => {
-                            const file = e.target.files[0]; if (!file) return;
-                            const r = new FileReader();
-                            r.onload = ev => saveCompanyInfo({...companyInfo, logoDataUrl: ev.target.result});
-                            r.readAsDataURL(file);
-                          }
-                        })
-                      ),
-                      companyInfo.logoDataUrl && h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',borderColor:'#fca5a5',color:'#991b1b'},
-                        onClick:()=>saveCompanyInfo({...companyInfo,logoDataUrl:null}) }, 'Remove')
-                    )
-                  )
-                ),
-                ...[['name','Store Name','Your Store']].map(([k,label,ph]) =>
-                  h('div', { key:k },
-                    h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, label),
-                    h('input', { className:'field-input', placeholder:ph, value:companyInfo[k]||'', style:{width:'100%',fontSize:13,boxSizing:'border-box'},
-                      onChange:e=>saveCompanyInfo({...companyInfo,[k]:e.target.value}) })
-                  )
-                ),
-                h('div', { key:'address' },
-                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, 'Address Line'),
-                  h('textarea', { className:'field-input', rows:2, placeholder:'12 Example Ave\nCity', value:[(companyInfo.addr1||''),(companyInfo.addr2||'')].filter(Boolean).join('\n')||'', style:{width:'100%',fontSize:13,boxSizing:'border-box',resize:'none',lineHeight:'1.5'},
-                    onChange:e=>{ const lines=e.target.value.split('\n'); saveCompanyInfo({...companyInfo, addr1:lines[0]||'', addr2:lines[1]||''}); }
-                  })
-                ),
-                ...[['addr3','Postcode / Region','AB1 2CD'],['email','Email','hello@example.com'],['phone','Phone','0712345678']].map(([k,label,ph]) =>
-                  h('div', { key:k },
-                    h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, label),
-                    h('input', { className:'field-input', placeholder:ph, value:companyInfo[k]||'', style:{width:'100%',fontSize:13,boxSizing:'border-box'},
-                      onChange:e=>saveCompanyInfo({...companyInfo,[k]:e.target.value}) })
-                  )
-                ),
-                /* Telegram QR */
-                h('div', null,
-                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:6} }, 'Telegram QR (shown in invoice)'),
-                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
-                    companyInfo.logoDataUrl2 && h('img', { src:companyInfo.logoDataUrl2, style:{width:48,height:48,borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)',flexShrink:0} }),
-                    h('div', { style:{display:'flex',gap:8,flexWrap:'wrap'} },
-                      h('label', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',cursor:'pointer'} },
-                        companyInfo.logoDataUrl2 ? '🔄 Replace logo' : '⬆ Upload logo',
-                        h('input', { type:'file', accept:'image/*', style:{display:'none'},
-                          onChange:e => {
-                            const file = e.target.files[0]; if (!file) return;
-                            const r = new FileReader();
-                            r.onload = ev => saveCompanyInfo({...companyInfo, logoDataUrl2: ev.target.result});
-                            r.readAsDataURL(file);
-                          }
-                        })
-                      ),
-                      companyInfo.logoDataUrl2 && h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',borderColor:'#fca5a5',color:'#991b1b'},
-                        onClick:()=>saveCompanyInfo({...companyInfo,logoDataUrl2:null}) }, 'Remove')
-                    )
-                  )
-                )
-              )
-            ),
-            h('div', { style:{borderTop:'1px solid var(--border)',marginTop:2} }),
-            /* 🏦 Payment Details */
-            h('div', null,
-              h('div', { style:{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:10,display:'flex',alignItems:'center',gap:6} }, '🏦 Payment Details'),
-              h('div', { style:{display:'grid',gap:8} },
-                [['sortCode','Sort Code','123456'],['account','Account Number','12345678'],['payRef','Payment Reference','Customer Ref'],['bankName','Bank Name','e.g. Barclays']].map(([k,label,ph]) =>
-                  h('div', { key:k },
-                    h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:3} }, label),
-                    h('input', { className:'field-input', placeholder:ph, value:companyInfo[k]||'', style:{width:'100%',fontSize:13,boxSizing:'border-box'},
-                      onChange:e=>saveCompanyInfo({...companyInfo,[k]:e.target.value}) })
-                  )
-                ),
-                /* Bank KHQR Payment */
-                h('div', null,
-                  h('label', { style:{fontSize:11,color:'var(--muted)',display:'block',marginBottom:6} }, 'Bank KHQR Payment (shown in invoice)'),
-                  h('div', { style:{display:'flex',alignItems:'center',gap:10} },
-                    companyInfo.logoDataUrl3 && h('img', { src:companyInfo.logoDataUrl3, style:{width:48,height:48,borderRadius:'50%',objectFit:'cover',border:'2px solid var(--border)',flexShrink:0} }),
-                    h('div', { style:{display:'flex',gap:8,flexWrap:'wrap'} },
-                      h('label', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',cursor:'pointer'} },
-                        companyInfo.logoDataUrl3 ? '🔄 Replace logo' : '⬆ Upload logo',
-                        h('input', { type:'file', accept:'image/*', style:{display:'none'},
-                          onChange:e => {
-                            const file = e.target.files[0]; if (!file) return;
-                            const r = new FileReader();
-                            r.onload = ev => saveCompanyInfo({...companyInfo, logoDataUrl3: ev.target.result});
-                            r.readAsDataURL(file);
-                          }
-                        })
-                      ),
-                      companyInfo.logoDataUrl3 && h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 12px',borderColor:'#fca5a5',color:'#991b1b'},
-                        onClick:()=>saveCompanyInfo({...companyInfo,logoDataUrl3:null}) }, 'Remove')
-                    )
-                  )
-                )
-              )
-            ),
-            h('div', { style:{borderTop:'1px solid var(--border)',marginTop:2} }),
-            /* Terms */
-            h('div', null,
-              h('div', { style:{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:8} }, '📝 Terms & Conditions (one per line)'),
-              h('textarea', { className:'field-input', rows:4,
-                placeholder:'Add payment instructions here\nAdd terms here, e.g: warranty, returns policy...',
-                value:companyInfo.terms||'',
-                style:{width:'100%',fontSize:13,boxSizing:'border-box',resize:'vertical'},
-                onChange:e=>saveCompanyInfo({...companyInfo,terms:e.target.value}) })
-            )
-          ),
-          /* ── Preview / action row ── */
-          h('div', { style:{display:'flex',gap:8,flexWrap:'wrap',marginTop:14} },
-            h('button', {
-              onClick: async () => {
-                const sampleInvoice = {
-                  ts: new Date().toISOString(),
-                  clientName: 'Sample Client Ltd',
-                  clientAddr1: '123 Example Street',
-                  clientAddr2: 'London, EC1A 1BB',
-                  clientAddr3: '',
-                  currency: '$',
-                  subtotal: 250.00,
-                  taxEnabled: true,
-                  taxPct: 20,
-                  taxAmt: 50.00,
-                  discountAmt: 0,
-                  total: 300.00,
-                  items: [
-                    { product_name: 'Sample Product A', qty: 2, estimated_price: 75.00 },
-                    { product_name: 'Sample Product B', qty: 1, estimated_price: 100.00 },
-                  ]
-                };
-                try {
-                  const blob = await generateInvoiceImage(sampleInvoice, 'INV-PREVIEW', '0001');
-                  setInvoicePreviewUrl(URL.createObjectURL(blob));
-                } catch(err) { alert('Could not generate preview: ' + err.message); }
-              },
-              style:{fontSize:12,padding:'7px 14px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface)',color:'var(--text)',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:5}
-            }, '👁 Preview Invoice')
-          )
-        ),
-        h('div', { id:'settings-apikey-section', className: apiKeyFlash ? 'apikey-highlight' : '', style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
-          h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 6px'} }, '🔑 Gemini API Keys'),
-          h('p', { style:{fontSize:12,color:'var(--muted)',marginBottom:14} }, 'Add multiple keys — if one fails or hits quota, the next is tried automatically.'),
-          apiKeys.map((key, i) =>
-            h('div', { key:i, style:{display:'flex',gap:6,alignItems:'center',marginBottom:8} },
-              h('span', { style:{fontSize:11,fontWeight:700,color:'var(--subtle)',minWidth:20,flexShrink:0} }, (i+1)+'.'),
-              h('input', { className:'field-input', type:'password', placeholder:'AIza...', value:key, style:{flex:1,fontSize:13},
-                onChange: e => { const next=[...apiKeys]; next[i]=e.target.value; saveApiKeys(next); }
-              }),
-              apiKeys.length > 1 && h('button', {
-                title:'Remove key',
-                onClick:() => { const next=apiKeys.filter((_,j)=>j!==i); saveApiKeys(next.length?next:['']); },
-                style:{background:'none',border:'1px solid #fca5a5',borderRadius:6,padding:'4px 10px',fontSize:12,color:'#991b1b',cursor:'pointer',flexShrink:0}
-              }, '✕')
-            )
-          ),
-          h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px',marginTop:4},
-            onClick:() => saveApiKeys([...apiKeys, ''])
-          }, '＋ Add another key')
-        ),
-        h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
-          h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 6px'} }, '🔍 Scanner — Excluded Words'),
-          h('p', { style:{fontSize:12,color:'var(--muted)',marginBottom:14} }, 'Words ignored during barcode / visual search scanning.'),
-          h('div', { style:{display:'flex',gap:6,marginBottom:10} },
-            h('input', { className:'field-input', id:'settings-excl-input', placeholder:'Type a word, press Enter or click Add…', style:{flex:1,fontSize:13},
-              onKeyDown: e => {
-                if (e.key==='Enter') {
-                  const w=e.target.value.trim().toLowerCase();
-                  if (w && !excludedWords.includes(w)) saveExcludedWords([...excludedWords, w]);
-                  e.target.value='';
-                }
-              }
-            }),
-            h('button', { className:'btn-amber', style:{fontSize:12,padding:'6px 16px',flexShrink:0},
-              onClick:() => {
-                const inp=document.getElementById('settings-excl-input');
-                const w=inp.value.trim().toLowerCase();
-                if (w && !excludedWords.includes(w)) saveExcludedWords([...excludedWords, w]);
-                inp.value='';
-              }
-            }, 'Add')
-          ),
-          excludedWords.length===0
-            ? h('p', { style:{fontSize:12,color:'var(--subtle)',fontStyle:'italic'} }, 'No excluded words yet.')
-            : h('div', { style:{display:'flex',flexWrap:'wrap',gap:6} },
-                excludedWords.map((w,i) =>
-                  h('span', { key:i, style:{display:'inline-flex',alignItems:'center',gap:5,background:'rgba(186,117,23,0.12)',color:'var(--amber)',border:'1px solid var(--amber)',borderRadius:20,padding:'3px 10px',fontSize:12,fontWeight:500} },
-                    w,
-                    h('button', {
-                      onClick:()=>saveExcludedWords(excludedWords.filter((_,j)=>j!==i)),
-                      style:{background:'none',border:'none',cursor:'pointer',padding:0,fontSize:14,lineHeight:1,color:'inherit',display:'flex',alignItems:'center'}
-                    }, '×')
-                  )
-                )
-              )
-        ),
-        h('div', { style:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginBottom:16} },
-          h('h2', { style:{fontSize:11,fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'0.06em',margin:'0 0 6px'} }, '🗂️ Categories'),
-          h('p', { style:{fontSize:12,color:'var(--muted)',marginBottom:12} }, categories.length+' categor'+(categories.length===1?'y':'ies')+' configured.'),
-          h('div', { style:{display:'flex',flexWrap:'wrap',gap:6,marginBottom:14} },
-            categories.map((c,i) => h('span', { key:i, className:'tag-pill' }, c))
-          ),
-          h('button', { className:'btn-ghost', style:{fontSize:12,padding:'6px 14px'}, onClick:()=>setShowCatMgr(true) }, '✏️ Manage categories')
-        ),
-        showCatMgr && h(CategoryModal, { categories, products, productTypes, applications, onSave:saveCategories, onSaveTypes:saveProductTypes, onSaveApplications:saveApplications, onClose:()=>setShowCatMgr(false), onCategoryAdded:handleCategoryAdded, onProductTypeAdded:handleProductTypeAdded, onApplicationAdded:handleApplicationAdded, initialTab:catMgrInitialTab }),
-                invoicePreviewUrl && h('div', {
-                  style:{position:'fixed',inset:0,background:'rgba(0,0,0,0.72)',zIndex:9999,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-start',overflowY:'auto',padding:'24px 16px'},
-                  onClick: e => { if (e.target === e.currentTarget) { URL.revokeObjectURL(invoicePreviewUrl); setInvoicePreviewUrl(null); } }
-                },
-                  h('div', { style:{width:'100%',maxWidth:540,display:'flex',flexDirection:'column',gap:0} },
-                    /* toolbar */
-                    h('div', { style:{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12} },
-                      h('span', { style:{color:'#fff',fontSize:14,fontWeight:600} }, '📋 Invoice Preview'),
-                      h('div', { style:{display:'flex',gap:8} },
-                        h('a', {
-                          href: invoicePreviewUrl,
-                          download: 'invoice-preview.jpg',
-                          style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,0.3)',background:'rgba(255,255,255,0.1)',color:'#fff',textDecoration:'none',display:'inline-flex',alignItems:'center',gap:5}
-                        }, '⬇ Download'),
-                        h('button', {
-                          onClick:()=>{ URL.revokeObjectURL(invoicePreviewUrl); setInvoicePreviewUrl(null); },
-                          style:{fontSize:12,padding:'6px 14px',borderRadius:8,border:'1px solid rgba(255,255,255,0.3)',background:'rgba(255,255,255,0.1)',color:'#fff',cursor:'pointer'}
-                        }, '✕ Close')
-                      )
-                    ),
-                    h('p', { style:{color:'rgba(255,255,255,0.55)',fontSize:11,marginBottom:14,marginTop:-4} }, 'Sample data shown — your real invoices will use actual cart items and client details.'),
-                    /* invoice image */
-                    h('img', {
-                      src: invoicePreviewUrl,
-                      style:{width:'100%',borderRadius:10,boxShadow:'0 8px 40px rgba(0,0,0,0.5)',display:'block'}
-                    })
-                  )
-                )
-      )
-    )
-  );
-
   /* ── POS ── */
   if (view==='pos') return h('div', { style:{position:'relative'} },
     leftNav,
     h('div', { className:'with-left-nav', style:{height:'100vh'} },
-      h(POSView, { products, onBack:()=>setView('dashboard'), onCheckout:handlePOSCheckout, onPrintInvoice:handlePrintInvoice, onAddReceipt:handleAddReceipt, darkMode, toggleDark, ieHistory, excludedWords, onExcludedWordsChange:saveExcludedWords, cart:posCart, setCart:setPosCart, apiKeys, invoiceTemplate, companyInfo })
+      h(POSView, { products, onBack:()=>setView('dashboard'), onCheckout:handlePOSCheckout, onPrintInvoice:handlePrintInvoice, onAddReceipt:handleAddReceipt, darkMode, toggleDark, ieHistory, excludedWords, onExcludedWordsChange:saveExcludedWords, cart:posCart, setCart:setPosCart, apiKeys, invoiceTemplate, saveInvoiceTemplate, companyInfo, saveCompanyInfo })
     )
   );
 
@@ -9116,7 +8868,7 @@ function App() {
   /* ── UPLOAD (also shown behind batch-analyze popup) ── */
   if (view==='upload' || (view==='analyzing' && isMultiAnalyze)) return h('div', { style:{position:'relative'} },
     leftNav,
-    toast && h('div', { style:{
+    toast && h('div', { className:'app-toast', style:{
       position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)',
       background: toast.type === 'error' ? '#450a0a' : '#052e16',
       border: `1px solid ${toast.type === 'error' ? '#991b1b' : '#166534'}`,
@@ -9619,8 +9371,8 @@ function App() {
       uploadTab === 'product' && h('div', { style:{marginLeft:'auto',display:'flex',alignItems:'center',gap:6,flexShrink:0} },
 
         aiEnabled && h('button', {
-          onClick: () => { setView('settings'); setApiKeyFlash(false); setTimeout(() => { setApiKeyFlash(true); const el = document.getElementById('settings-apikey-section'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(()=>setApiKeyFlash(false), 1900); }, 80); },
-          title: 'Go to API Key settings',
+          onClick: () => setShowApiKey(v=>!v),
+          title: 'Gemini API Keys',
           style:{ background:'none', border:'1px solid var(--border)', borderRadius:6, padding:'2px 7px', fontSize:11, color:'var(--muted)', cursor:'pointer', flexShrink:0 }
         }, '🔑'),
         h('button', { onClick:()=>setAiEnabled(v=>!v), style:{width:40,height:22,borderRadius:11,border:'none',padding:0,background:aiEnabled?'#BA7517':'#d4d4d8',position:'relative',transition:'background 0.2s',flexShrink:0,cursor:'pointer'} },
@@ -11420,7 +11172,7 @@ function App() {
   return h('div', { ref:scrollWrapRef, onScroll:handleDashScroll, className:'page-wrap', style:{height:'100vh',overflowY:'auto',padding:0,background:'var(--bg)'} },
     leftNav,
     h('div', { className:'dashboard-inner with-left-nav' },
-    toast && h('div', { style:{
+    toast && h('div', { className:'app-toast', style:{
       position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)',
       background: toast.type === 'error' ? '#450a0a' : '#052e16',
       border: `1px solid ${toast.type === 'error' ? '#991b1b' : '#166534'}`,
