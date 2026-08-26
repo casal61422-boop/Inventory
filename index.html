@@ -846,6 +846,23 @@ html.dark .nav-item .nav-badge {
 
   .nav-toggle-btn { display: none !important; }
   .app-toast { bottom: 74px !important; }
+
+  /* dark/light toggle hidden by default; revealed by swiping left from the right edge */
+  .left-nav .nav-dark-toggle {
+    flex: none;
+    width: 0;
+    min-width: 0;
+    padding: 0;
+    opacity: 0;
+    overflow: hidden;
+    pointer-events: none;
+    transition: width 0.22s ease, opacity 0.15s ease;
+  }
+  .left-nav.nav-dark-revealed .nav-dark-toggle {
+    width: 56px;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .pos-invoice-link:hover {
   color: var(--amber) !important;
@@ -5037,6 +5054,30 @@ function App() {
   useEffect(() => {
     document.documentElement.classList.toggle('nav-hidden', navHidden);
   }, [navHidden]);
+  /* ── bottom-nav dark/light swipe reveal (screens ≤450px) ── */
+  const [bottomDarkRevealed, setBottomDarkRevealed] = useState(false);
+  const bottomNavSwipeStartRef = useRef(null);
+  const onBottomNavTouchStart = e => {
+    if (window.innerWidth > 450) return;
+    const t = e.touches[0];
+    bottomNavSwipeStartRef.current = t.clientX;
+  };
+  const onBottomNavTouchMove = e => {
+    if (window.innerWidth > 450 || bottomNavSwipeStartRef.current == null) return;
+    const t = e.touches[0];
+    const dx = t.clientX - bottomNavSwipeStartRef.current;
+    if (!bottomDarkRevealed) {
+      // must start the swipe near the right edge of the nav, then move left
+      if (bottomNavSwipeStartRef.current >= window.innerWidth - 40 && dx < -30) {
+        setBottomDarkRevealed(true);
+        bottomNavSwipeStartRef.current = null;
+      }
+    } else if (dx > 30) {
+      setBottomDarkRevealed(false);
+      bottomNavSwipeStartRef.current = null;
+    }
+  };
+  const onBottomNavTouchEnd = () => { bottomNavSwipeStartRef.current = null; };
   const [stockTab, setStockTabRaw]  = useState(() => localStorage.getItem('stockTab') || 'ordering');
   const stockScrollPositions = useRef({});
   const getStockScrollKey = (st, ost) => st === 'lowstock' ? 'lowstock' : st === 'ordering' ? ('ordering-'+ost) : null;
@@ -5245,6 +5286,7 @@ function App() {
   const [pending, setPending]       = useState(null);
   const [editTarget, setEditTarget] = useState(null);
   const [showCatMgr, setShowCatMgr] = useState(false);
+  const [showInvoiceSettings, setShowInvoiceSettings] = useState(false);
   const [catMgrInitialTab, setCatMgrInitialTab] = useState('manage');
   const [catDropOpen, setCatDropOpen] = useState(false);
   const [typeDropOpen, setTypeDropOpen] = useState(false);
@@ -6587,6 +6629,23 @@ function App() {
   };
   const onQrCropMouseUp = () => { setQrCropDragging(false); setQrCropResizing(null); setQrCropStartPt(null); };
   const leftNav = h(Fragment, null,
+    showInvoiceSettings && h('div', {
+      className: 'modal-overlay',
+      onClick: e => { if (e.target === e.currentTarget) setShowInvoiceSettings(false); }
+    },
+      h('div', { className:'modal-box', style:{maxWidth:620,width:'100%',padding:0,overflow:'hidden',maxHeight:'92vh',display:'flex',flexDirection:'column'} },
+        h('div', { style:{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'16px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0} },
+          h('h2', { style:{fontSize:15,fontWeight:700,margin:0,color:'var(--text)'} }, '📋 Invoice Template'),
+          h('button', {
+            onClick:()=>setShowInvoiceSettings(false),
+            style:{fontSize:13,padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--muted)',cursor:'pointer'}
+          }, '✕')
+        ),
+        h('div', { style:{padding:'18px 20px',overflowY:'auto'} },
+          h(InvoiceTemplateSection, { companyInfo, saveCompanyInfo, invoiceTemplate, saveInvoiceTemplate, bare:true })
+        )
+      )
+    ),
     h('button', {
       className: 'nav-toggle-btn',
       title: navHidden ? 'Show navigation' : 'Hide navigation',
@@ -6595,7 +6654,19 @@ function App() {
     },
       h('span', null, navHidden ? '>' : '<')
     ),
-    h('nav', { className:'left-nav' },
+    h('nav', {
+      className:'left-nav' + (bottomDarkRevealed ? ' nav-dark-revealed' : ''),
+      onTouchStart: onBottomNavTouchStart,
+      onTouchMove: onBottomNavTouchMove,
+      onTouchEnd: onBottomNavTouchEnd
+    },
+    h('div', { className:'nav-logo', title:'Invoice Template settings', onClick:()=>setShowInvoiceSettings(true), style:{cursor:'pointer'} },
+      companyInfo.logoDataUrl
+        ? h('img', { src:companyInfo.logoDataUrl, alt:'logo' })
+        : h('span', null, '📦'),
+      companyInfo.name && h('div', { className:'nav-store-name' }, companyInfo.name)
+    ),
+    h('div', { className:'nav-sep' }),
     h('div', { className:'nav-scroll' },
       h('button', { className:'nav-item' + (view==='dashboard'?' active':''), title:'Dashboard', onClick:()=>setView('dashboard') },
         h('span', { className:'nav-icon' }, '📦'),
@@ -6625,7 +6696,7 @@ function App() {
       )
     ),
     h('div', { className:'nav-sep' }),
-    h('button', { className:'nav-item', title: darkMode ? 'Light mode' : 'Dark mode', onClick: toggleDark },
+    h('button', { className:'nav-item nav-dark-toggle', title: darkMode ? 'Light mode' : 'Dark mode', onClick: () => { toggleDark(); if (window.innerWidth <= 450) setTimeout(() => setBottomDarkRevealed(false), 350); } },
       h('span', { className:'nav-icon' }, darkMode ? '☀️' : '🌙'),
       h('span', { className:'nav-label' }, darkMode ? 'Light' : 'Dark')
     )
