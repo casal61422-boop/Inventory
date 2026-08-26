@@ -361,6 +361,8 @@ html:not(.dark) select option { background: #ffffff; color: #18181b; }
 .dashboard-inner { padding: 0 24px 24px; }
 .product-count-label { transition: opacity 0.25s, max-height 0.25s, padding-top 0.25s; overflow: hidden; max-height: 40px; opacity: 1; padding-top: 6px; }
 .product-count-label.hidden { opacity: 0; max-height: 0; padding-top: 0; pointer-events: none; }
+.stats-grid { transition: opacity 0.25s, max-height 0.25s, margin-bottom 0.25s; overflow: hidden; max-height: 200px; opacity: 1; }
+.stats-grid.hidden { opacity: 0; max-height: 0; margin-bottom: 0 !important; pointer-events: none; }
 .dashboard-sticky-header { position:sticky; top:0; z-index:100; background:var(--bg); padding-top:22px; padding-bottom:10px; margin-left:-24px; margin-right:-24px; padding-left:24px; padding-right:24px; }
 
 /* ── MOBILE RESPONSIVE ── */
@@ -5548,7 +5550,10 @@ function App() {
   const toastTimer = useRef(null);
   const scrollWrapRef = useRef(null);
   const lastScrollY = useRef(0);
+  const statsAnchorY = useRef(0);
+  const statsLockUntil = useRef(0);
   const [showCount, setShowCount] = useState(true);
+  const [showStats, setShowStats] = useState(true);
   const showToast = (msg, type='success', undo=null) => {
     clearTimeout(toastTimer.current);
     setToast({ msg, type, undo });
@@ -5755,9 +5760,34 @@ function App() {
     return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('touchstart', handler); };
   }, []);
 
-  // Product count stays visible while scrolling
+  // Hide the 4 stat dashboards on scroll down, show on scroll up. Product count label stays visible.
   const handleDashScroll = (e) => {
-    const y = e.currentTarget.scrollTop;
+    const el = e.currentTarget;
+    const y = el.scrollTop;
+    const now = Date.now();
+    if (now < statsLockUntil.current) { return; }
+    if (y < 30) {
+      if (!showStats) {
+        setShowStats(true);
+        statsLockUntil.current = now + 450;
+        setTimeout(() => { if (scrollWrapRef.current) { const ry = scrollWrapRef.current.scrollTop; statsAnchorY.current = ry; lastScrollY.current = ry; } }, 460);
+      }
+      statsAnchorY.current = y;
+    } else if (y - statsAnchorY.current > 30) {
+      if (showStats) {
+        setShowStats(false);
+        statsLockUntil.current = now + 450;
+        setTimeout(() => { if (scrollWrapRef.current) { const ry = scrollWrapRef.current.scrollTop; statsAnchorY.current = ry; lastScrollY.current = ry; } }, 460);
+      }
+      statsAnchorY.current = y;
+    } else if (statsAnchorY.current - y > 30) {
+      if (!showStats) {
+        setShowStats(true);
+        statsLockUntil.current = now + 450;
+        setTimeout(() => { if (scrollWrapRef.current) { const ry = scrollWrapRef.current.scrollTop; statsAnchorY.current = ry; lastScrollY.current = ry; } }, 460);
+      }
+      statsAnchorY.current = y;
+    }
     lastScrollY.current = y;
   };
 
@@ -11309,7 +11339,7 @@ function App() {
       )
     ),
 
-      h('div', { className:'stats-grid', style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12} },
+      h('div', { className:`stats-grid${showStats ? '' : ' hidden'}`, style:{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:12} },
         [
           { label:'Total products', value:catalogProducts.length },
           { label:'Out of stock', value:outOfStock, red:outOfStock>0, clickable:true, action:'lowstock' },
